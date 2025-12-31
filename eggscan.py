@@ -9,9 +9,10 @@ import json
 import secrets
 
 from flask import (
-    Flask, render_template_string, redirect, url_for, request, flash,
-    jsonify
+    Flask, render_template, redirect, url_for, request, flash,
+    jsonify, has_request_context
 )
+
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
@@ -68,7 +69,7 @@ def load_or_create_secret_key():
 
 APP_VERSION = load_version()
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["SECRET_KEY"] = load_or_create_secret_key()
 app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_FILE}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -78,9 +79,8 @@ bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
-
 # ---------------------------
-#         MODELLER
+#         MODELS
 # ---------------------------
 
 class User(UserMixin, db.Model):
@@ -97,11 +97,6 @@ class Settings(db.Model):
 
 
 class Device(db.Model):
-    """
-    is_new: True om enheten är helt nyupptäckt och ej "bekräftad".
-            När du sätter alias eller klickar på "Markera känd"
-            sätts is_new=False.
-    """
     id = db.Column(db.Integer, primary_key=True)
     ip_address = db.Column(db.String(200))
     mac_address = db.Column(db.String(40), unique=True)
@@ -114,8 +109,6 @@ class Device(db.Model):
 
 
 class SubNetwork(db.Model):
-    
-    
     id = db.Column(db.Integer, primary_key=True)
     cidr = db.Column(db.String(50), unique=True, nullable=False)
 
@@ -135,7 +128,6 @@ def load_user(user_id):
 
 TRANSLATIONS = {
     "sv": {
-        # Generellt
         "LANG_SV": "Svenska",
         "LANG_EN": "English",
         "LANGUAGE_LABEL": "Språk",
@@ -150,7 +142,6 @@ TRANSLATIONS = {
         "NO": "Nej",
         "VERSION_LABEL": "Version",
 
-        # Index / Dashboard
         "INDEX_TITLE": "EggScan",
         "LOGGED_IN_AS": "Inloggad som:",
         "MANUAL_PING_PLACEHOLDER": "Ange IP att testa",
@@ -185,7 +176,6 @@ TRANSLATIONS = {
         "ALIAS_LABEL": "Alias",
         "CANCEL": "Avbryt",
         "ALIAS_SAVE": "Spara",
-        "VERSION_LABEL": "Version",
 
         "STATS_ONLINE_TOTAL_LABEL": "Online av totalt",
         "STATS_NEW_DEVICES_LABEL": "Nya enheter",
@@ -198,29 +188,24 @@ TRANSLATIONS = {
         "STATUSBAR_ON": "På",
         "STATUSBAR_OFF": "Av",
 
-        # Manufacturer modal
         "MANUFACTURER_MODAL_TITLE": "Uppdatera tillverkare",
         "MANUFACTURER_LABEL": "Tillverkare",
         "MANUFACTURER_SAVE": "Spara",
 
-        # Setup
         "SETUP_TITLE": "Setup Admin",
         "SETUP_USERNAME": "Användarnamn",
         "SETUP_PASSWORD": "Lösenord",
         "SETUP_CREATE_ADMIN": "Skapa Admin",
 
-        # Login
         "LOGIN_TITLE": "Logga in",
         "LOGIN_BUTTON": "Logga in",
         "LOGIN_USERNAME": "Användarnamn",
         "LOGIN_PASSWORD": "Lösenord",
 
-        # Change password
         "CHANGE_PASSWORD_TITLE": "Byt lösenord",
         "CHANGE_PASSWORD_NEW": "Nytt lösenord",
         "CHANGE_PASSWORD_UPDATE": "Uppdatera lösenord",
 
-        # Manage users
         "MANAGE_USERS_TITLE": "Hantera användare",
         "MANAGE_USERS_ADD_TITLE": "Lägg till användare",
         "MANAGE_USERS_USERNAME": "Användarnamn",
@@ -235,7 +220,6 @@ TRANSLATIONS = {
         "MANAGE_USERS_NOT_ADMIN_LABEL": "Nej",
         "MANAGE_USERS_ADMIN_TAG": "(Admin)",
 
-        # Config / Inställningar
         "CONFIG_TITLE": "Nätverksinställningar",
         "CONFIG_ADD_SUBNET_LABEL": "Lägg till subnät (t.ex. 192.168.0.0/24):",
         "CONFIG_ADD_SUBNET_BUTTON": "Lägg till",
@@ -250,7 +234,6 @@ TRANSLATIONS = {
         "CONFIG_IPV6_UTILS": "IPv6-interface (t.ex. eth0):",
         "CONFIG_SAVE_BUTTON": "Spara",
 
-        # Flash-meddelanden
         "FLASH_SETUP_USER_PASS_REQUIRED": "Användarnamn och lösenord krävs.",
         "FLASH_SETUP_ADMIN_CREATED": "Admin-konto skapat! Logga in.",
         "FLASH_LOGIN_OK": "Du har loggat in!",
@@ -284,17 +267,16 @@ TRANSLATIONS = {
         "FLASH_SCAN_INTERVAL_INVALID": "Skanningsintervall måste vara ett positivt heltal.",
         "FLASH_SETTINGS_UPDATED": "Inställningar uppdaterade!",
 
-        # Manufacturer flash
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Endast admin kan ändra tillverkare!",
         "FLASH_MANUFACTURER_UPDATED": "Tillverkare uppdaterad!",
 
-	#scans
-	"CONFIG_SCAN_INTERVAL_HINT": "Ändras vid nästa skanning.",
-        "ACTIVE_SCAN_INTERVAL_LABEL": "Aktivt intervall just nu:",   
+        "CONFIG_SCAN_INTERVAL_HINT": "Ändras vid nästa skanning.",
+        "ACTIVE_SCAN_INTERVAL_LABEL": "Aktivt intervall just nu:",
+        "THEME_LABEL": "Tema",
+        "SAVE_THEME": "Spara tema",    
 
- },
+  },
     "en": {
-        # General
         "LANG_SV": "Swedish",
         "LANG_EN": "English",
         "LANGUAGE_LABEL": "Language",
@@ -309,7 +291,6 @@ TRANSLATIONS = {
         "NO": "No",
         "VERSION_LABEL": "Version",
 
-        # Index / Dashboard
         "INDEX_TITLE": "EggScan",
         "LOGGED_IN_AS": "Logged in as:",
         "MANUAL_PING_PLACEHOLDER": "Enter IP to test",
@@ -344,11 +325,9 @@ TRANSLATIONS = {
         "ALIAS_LABEL": "Alias",
         "CANCEL": "Cancel",
         "ALIAS_SAVE": "Save",
-        "VERSION_LABEL": "Version",
 
         "STATS_ONLINE_TOTAL_LABEL": "Online out of total",
         "STATS_NEW_DEVICES_LABEL": "New devices",
-
         "STATUSBAR_ONLINE": "Online",
         "STATUSBAR_OFFLINE": "Offline",
         "STATUSBAR_TOTAL": "Total",
@@ -358,29 +337,24 @@ TRANSLATIONS = {
         "STATUSBAR_ON": "On",
         "STATUSBAR_OFF": "Off",
 
-        # Manufacturer modal
         "MANUFACTURER_MODAL_TITLE": "Update manufacturer",
         "MANUFACTURER_LABEL": "Manufacturer",
         "MANUFACTURER_SAVE": "Save",
 
-        # Setup
         "SETUP_TITLE": "Setup Admin",
         "SETUP_USERNAME": "Username",
         "SETUP_PASSWORD": "Password",
         "SETUP_CREATE_ADMIN": "Create Admin",
 
-        # Login
         "LOGIN_TITLE": "Log in",
         "LOGIN_BUTTON": "Log in",
         "LOGIN_USERNAME": "Username",
         "LOGIN_PASSWORD": "Password",
 
-        # Change password
         "CHANGE_PASSWORD_TITLE": "Change password",
         "CHANGE_PASSWORD_NEW": "New password",
         "CHANGE_PASSWORD_UPDATE": "Update password",
 
-        # Manage users
         "MANAGE_USERS_TITLE": "Manage Users",
         "MANAGE_USERS_ADD_TITLE": "Add user",
         "MANAGE_USERS_USERNAME": "Username",
@@ -395,7 +369,6 @@ TRANSLATIONS = {
         "MANAGE_USERS_NOT_ADMIN_LABEL": "No",
         "MANAGE_USERS_ADMIN_TAG": "(Admin)",
 
-        # Config / Settings
         "CONFIG_TITLE": "Network settings",
         "CONFIG_ADD_SUBNET_LABEL": "Add subnet (e.g. 192.168.0.0/24):",
         "CONFIG_ADD_SUBNET_BUTTON": "Add",
@@ -410,7 +383,6 @@ TRANSLATIONS = {
         "CONFIG_IPV6_UTILS": "IPv6 interface (e.g. eth0):",
         "CONFIG_SAVE_BUTTON": "Save",
 
-        # Flash messages
         "FLASH_SETUP_USER_PASS_REQUIRED": "Username and password are required.",
         "FLASH_SETUP_ADMIN_CREATED": "Admin account created! Please log in.",
         "FLASH_LOGIN_OK": "You have logged in!",
@@ -444,16 +416,14 @@ TRANSLATIONS = {
         "FLASH_SCAN_INTERVAL_INVALID": "Scan interval must be a positive integer.",
         "FLASH_SETTINGS_UPDATED": "Settings updated!",
 
-        # Manufacturer flash
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Only admin can change manufacturer!",
         "FLASH_MANUFACTURER_UPDATED": "Manufacturer updated!",
-	
-	#scans
-	"CONFIG_SCAN_INTERVAL_HINT": "Takes effect on next scan.",
-        "ACTIVE_SCAN_INTERVAL_LABEL": "Active interval right now:",
 
-   
- },
+        "CONFIG_SCAN_INTERVAL_HINT": "Takes effect on next scan.",
+        "ACTIVE_SCAN_INTERVAL_LABEL": "Active interval right now:",
+        "THEME_LABEL": "Theme",
+        "SAVE_THEME": "Save theme",
+    },
 }
 
 
@@ -479,6 +449,17 @@ def get_language():
     return lang
 
 
+def get_theme():
+    theme = get_setting("theme", "default")
+    if not theme:
+        theme = "default"
+
+    allowed = {"default", "dark", "light", "cosmos"}
+    if theme not in allowed:
+        theme = "default"
+
+    return theme
+
 def t(key):
     lang = get_language()
     return TRANSLATIONS.get(lang, TRANSLATIONS["sv"]).get(key, key)
@@ -493,7 +474,7 @@ def tf(key, **kwargs):
 
 
 # ---------------------------
-#   HJÄLPFUNKTIONER
+#   HELPERS
 # ---------------------------
 
 def guess_network_range():
@@ -501,7 +482,7 @@ def guess_network_range():
         result = subprocess.run(["ip", "route", "show", "default"],
                                 capture_output=True, text=True)
         if result.returncode != 0:
-            raise Exception("Kunde inte hämta standardrout")
+            raise Exception("Could not read default route")
         default_line = result.stdout.strip().splitlines()[0]
         parts = default_line.split()
         default_if = parts[parts.index("dev") + 1]
@@ -509,7 +490,7 @@ def guess_network_range():
         result = subprocess.run(["ip", "-o", "-f", "inet", "addr", "show", "dev", default_if],
                                 capture_output=True, text=True)
         if result.returncode != 0:
-            raise Exception("Kunde inte hämta IP-adress")
+            raise Exception("Could not read IP")
         line = result.stdout.strip().splitlines()[0]
         ip_with_prefix = line.split()[3]
         net = ipaddress.ip_network(ip_with_prefix, strict=False)
@@ -531,7 +512,7 @@ def discover_ipv6_neighbors():
     try:
         subprocess.run(ping_cmd, timeout=5, check=False)
     except Exception as e:
-        print("Fel vid ping6 ff02::1:", e)
+        print("Error ping6 ff02::1:", e)
 
     try:
         result = subprocess.run(["ip", "-6", "neighbor", "show"],
@@ -539,15 +520,14 @@ def discover_ipv6_neighbors():
         lines = result.stdout.strip().splitlines()
         for line in lines:
             parts = line.split()
-            if len(parts) >= 5 and parts[1] == 'dev' and parts[3] == 'lladdr':
+            if len(parts) >= 5 and parts[1] == "dev" and parts[3] == "lladdr":
                 ipv6_addr = parts[0].lower()
                 mac_addr = parts[4].lower()
-                if mac_addr not in mac_to_v6:
-                    mac_to_v6[mac_addr] = []
+                mac_to_v6.setdefault(mac_addr, [])
                 if ipv6_addr not in mac_to_v6[mac_addr]:
                     mac_to_v6[mac_addr].append(ipv6_addr)
     except Exception as e:
-        print("Fel vid ip -6 neighbor show:", e)
+        print("Error ip -6 neighbor show:", e)
 
     return mac_to_v6
 
@@ -563,10 +543,8 @@ def nmap_scan_and_save():
     set_setting("last_scan_id", current_scan_id)
 
     nm = nmap.PortScanner()
-
     existing_devices = {d.mac_address.lower(): d for d in Device.query.all()}
     ipv6_enabled = (get_setting("ipv6_enabled", "false") == "true")
-
     scan_ips_per_mac = {}
 
     for sn in subnets:
@@ -575,52 +553,50 @@ def nmap_scan_and_save():
             continue
         try:
             network = ipaddress.ip_network(cidr, strict=False)
-            if network.version == 4:
-                scan_output = nm.scan(hosts=cidr, arguments="-sn")
-                for host, info in scan_output.get("scan", {}).items():
-                    mac = info.get("addresses", {}).get("mac", None)
-                    if not mac:
-                        continue
-                    mac_lower = mac.lower()
-                    manufacturer = info.get("vendor", {}).get(mac, None)
+            if network.version != 4:
+                continue
 
-                    if mac_lower not in scan_ips_per_mac:
-                        scan_ips_per_mac[mac_lower] = set()
-                    scan_ips_per_mac[mac_lower].add(host)
+            scan_output = nm.scan(hosts=cidr, arguments="-sn")
+            for host, info in scan_output.get("scan", {}).items():
+                mac = info.get("addresses", {}).get("mac", None)
+                if not mac:
+                    continue
 
-                    if mac_lower in existing_devices:
-                        dev = existing_devices[mac_lower]
-                        if manufacturer:
-                            dev.manufacturer = manufacturer
-                        dev.last_seen_scan = current_scan_id
-                        dev.last_seen_at = datetime.datetime.now()
-                    else:
-                        new_dev = Device(
-                            ip_address=host,
-                            mac_address=mac,
-                            manufacturer=manufacturer,
-                            last_seen_scan=current_scan_id,
-                            last_seen_at=datetime.datetime.now(),
-                            is_new=True
-                        )
-                        db.session.add(new_dev)
-                        existing_devices[mac_lower] = new_dev
-            else:
-                pass
+                mac_lower = mac.lower()
+                manufacturer = info.get("vendor", {}).get(mac, None)
+
+                scan_ips_per_mac.setdefault(mac_lower, set()).add(host)
+
+                if mac_lower in existing_devices:
+                    dev = existing_devices[mac_lower]
+                    if manufacturer:
+                        dev.manufacturer = manufacturer
+                    dev.last_seen_scan = current_scan_id
+                    dev.last_seen_at = datetime.datetime.now()
+                else:
+                    new_dev = Device(
+                        ip_address=host,
+                        mac_address=mac,
+                        manufacturer=manufacturer,
+                        last_seen_scan=current_scan_id,
+                        last_seen_at=datetime.datetime.now(),
+                        is_new=True
+                    )
+                    db.session.add(new_dev)
+                    existing_devices[mac_lower] = new_dev
+
         except Exception as e:
-            print(f"Fel vid scanning av subnät {cidr}: {e}")
+            print(f"Scan error for {cidr}: {e}")
 
     db.session.commit()
 
     if ipv6_enabled:
         v6_map = discover_ipv6_neighbors()
-
         for mac_lower, ipv6_list in v6_map.items():
             if not ipv6_list:
                 continue
 
-            if mac_lower not in scan_ips_per_mac:
-                scan_ips_per_mac[mac_lower] = set()
+            scan_ips_per_mac.setdefault(mac_lower, set())
             for ip6 in ipv6_list:
                 scan_ips_per_mac[mac_lower].add(ip6)
 
@@ -662,11 +638,7 @@ def nmap_scan_and_save():
                         continue
 
                 ordered = ipv4_addrs + ipv6_addrs
-
-                if ordered:
-                    dev.ip_address = ",".join(ordered)
-                else:
-                    dev.ip_address = "-"
+                dev.ip_address = ",".join(ordered) if ordered else "-"
             else:
                 dev.ip_address = "-"
     db.session.commit()
@@ -689,10 +661,7 @@ def nmap_scan_and_save():
                             keep_only_v4.append(addr)
                     except Exception:
                         pass
-                if keep_only_v4:
-                    d.ip_address = ",".join(keep_only_v4)
-                else:
-                    d.ip_address = "-"
+                d.ip_address = ",".join(keep_only_v4) if keep_only_v4 else "-"
         db.session.commit()
 
     set_setting("last_scan_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -709,18 +678,31 @@ def run_periodic_scan():
                 interval_minutes = 5
 
             set_setting("scan_interval_active", str(interval_minutes))
-
             nmap_scan_and_save()
 
         time.sleep(interval_minutes * 60)
 
 
+@app.context_processor
+def inject_globals():
+    theme_value = "default"
+    if has_request_context():
+        try:
+            if current_user.is_authenticated:
+                theme_value = get_theme()
+        except Exception:
+            theme_value = "default"
+
+    return {
+        "t": t,
+        "lang": get_language(),
+        "version": APP_VERSION,
+        "theme": theme_value,
+    }
 
 # ---------------------------
 #          ROUTES
 # ---------------------------
-
-
 
 @app.route("/setup", methods=["GET", "POST"])
 def setup():
@@ -732,20 +714,23 @@ def setup():
         if language in ("sv", "en"):
             set_setting("language", language)
 
-        username = request.form["username"]
-        password = request.form["password"]
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
         if not username or not password:
             flash(t("FLASH_SETUP_USER_PASS_REQUIRED"), "danger")
             return redirect(url_for("setup"))
+
         hashed_pw = bcrypt.generate_password_hash(password).decode("utf-8")
         admin_user = User(username=username, password=hashed_pw, is_admin=True)
         db.session.add(admin_user)
         db.session.commit()
+
         flash(t("FLASH_SETUP_ADMIN_CREATED"), "success")
         return redirect(url_for("login"))
 
     lang = get_language()
-    return render_template_string(SETUP_TEMPLATE, t=t, lang=lang, version=APP_VERSION)
+    return render_template("setup.html", t=t, lang=lang, version=APP_VERSION, theme="default")
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -758,17 +743,19 @@ def login():
         if language in ("sv", "en"):
             set_setting("language", language)
 
-        username = request.form.get("username")
-        password = request.form.get("password")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
         user = User.query.filter_by(username=username).first()
         if user and bcrypt.check_password_hash(user.password, password):
             login_user(user)
             flash(t("FLASH_LOGIN_OK"), "success")
             return redirect(url_for("index"))
+
         flash(t("FLASH_LOGIN_FAIL"), "danger")
 
     lang = get_language()
-    return render_template_string(LOGIN_TEMPLATE, t=t, lang=lang, version=APP_VERSION)
+    return render_template("login.html", t=t, lang=lang, version=APP_VERSION, theme="default")
 
 
 @app.route("/logout")
@@ -783,18 +770,21 @@ def logout():
 @login_required
 def change_password():
     if request.method == "POST":
-        new_password = request.form["password"]
+        new_password = request.form.get("password", "")
         if not new_password:
             flash(t("FLASH_PASSWORD_REQUIRED"), "danger")
             return redirect(url_for("change_password"))
+
         hashed_pw = bcrypt.generate_password_hash(new_password).decode("utf-8")
         current_user.password = hashed_pw
         db.session.commit()
+
         flash(t("FLASH_PASSWORD_UPDATED"), "success")
         return redirect(url_for("index"))
 
     lang = get_language()
-    return render_template_string(CHANGE_PASSWORD_TEMPLATE, t=t, lang=lang, version=APP_VERSION)
+    theme = get_theme()
+    return render_template("change_password.html", t=t, lang=lang, version=APP_VERSION, theme=theme)
 
 
 @app.route("/")
@@ -822,7 +812,7 @@ def index():
             )
         )
 
-    if filter_mode in ["online", "offline"] and last_scan_id:
+    if filter_mode in ("online", "offline") and last_scan_id:
         if filter_mode == "online":
             q = q.filter(Device.last_seen_scan == last_scan_id)
         else:
@@ -874,14 +864,15 @@ def index():
         devices.sort(key=updated_key, reverse=(sort_dir == "desc"))
 
     lang = get_language()
+    theme = get_theme()
     ipv6_enabled = (get_setting("ipv6_enabled", "false") == "true")
     last_scan_time = get_setting("last_scan_time", "")
 
     configured_scan_interval = get_setting("scan_interval", "5")
     active_scan_interval = get_setting("scan_interval_active", configured_scan_interval)
 
-    return render_template_string(
-        INDEX_TEMPLATE,
+    return render_template(
+        "index.html",
         devices=devices,
         current_user=current_user,
         scan_status=scan_status,
@@ -901,7 +892,8 @@ def index():
         active_scan_interval=active_scan_interval,
         t=t,
         lang=lang,
-        version=APP_VERSION
+        version=APP_VERSION,
+        theme=theme
     )
 
 
@@ -929,8 +921,10 @@ def update_alias():
     if not current_user.is_admin:
         flash(t("FLASH_ALIAS_ADMIN_ONLY"), "danger")
         return redirect(url_for("index"))
+
     mac = request.form.get("mac")
     alias = request.form.get("alias", "").strip()
+
     if mac:
         dev = Device.query.filter_by(mac_address=mac).first()
         if dev:
@@ -939,6 +933,7 @@ def update_alias():
                 dev.is_new = False
             db.session.commit()
             flash(t("FLASH_ALIAS_UPDATED"), "success")
+
     return redirect(url_for("index"))
 
 
@@ -948,14 +943,17 @@ def update_manufacturer():
     if not current_user.is_admin:
         flash(t("FLASH_MANUFACTURER_ADMIN_ONLY"), "danger")
         return redirect(url_for("index"))
+
     mac = request.form.get("mac")
     manufacturer = request.form.get("manufacturer", "").strip()
+
     if mac:
         dev = Device.query.filter_by(mac_address=mac).first()
         if dev:
             dev.manufacturer = manufacturer if manufacturer else None
             db.session.commit()
             flash(t("FLASH_MANUFACTURER_UPDATED"), "success")
+
     return redirect(url_for("index"))
 
 
@@ -965,11 +963,13 @@ def mark_known(device_id):
     if not current_user.is_admin:
         flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
         return redirect(url_for("index"))
+
     dev = Device.query.get(device_id)
     if dev and dev.is_new:
         dev.is_new = False
         db.session.commit()
         flash(t("FLASH_DEVICE_MARKED_KNOWN"), "success")
+
     return redirect(url_for("index"))
 
 
@@ -1031,6 +1031,7 @@ def delete_device(device_id):
     if not current_user.is_admin:
         flash(t("FLASH_DELETE_ADMIN_ONLY"), "danger")
         return redirect(url_for("index"))
+
     dev = Device.query.get(device_id)
     if dev:
         db.session.delete(dev)
@@ -1038,6 +1039,7 @@ def delete_device(device_id):
         flash(t("FLASH_DEVICE_DELETED"), "success")
     else:
         flash(t("FLASH_DEVICE_NOT_FOUND"), "warning")
+
     return redirect(url_for("index"))
 
 
@@ -1071,7 +1073,8 @@ def manage_users():
 
     users = User.query.all()
     lang = get_language()
-    return render_template_string(MANAGE_USERS_TEMPLATE, users=users, t=t, lang=lang, version=APP_VERSION)
+    theme = get_theme()
+    return render_template("manage_users.html", users=users, t=t, lang=lang, version=APP_VERSION, theme=theme)
 
 
 @app.route("/config_eggscan", methods=["GET", "POST"])
@@ -1149,12 +1152,11 @@ def config_eggscan():
     highlight_new = (get_setting("highlight_new", "false") == "true")
     ipv6_utils = get_setting("ipv6_utils", "")
     lang = get_language()
-
     active_scan_interval = get_setting("scan_interval_active", scan_interval)
+    theme = get_theme()
 
-
-    return render_template_string(
-        CONFIG_TEMPLATE,
+    return render_template(
+        "config.html",
         subnets=subnets,
         ipv6=ipv6_enable,
         scan_interval=scan_interval,
@@ -1163,1217 +1165,24 @@ def config_eggscan():
         active_scan_interval=active_scan_interval,
         t=t,
         lang=lang,
-        version=APP_VERSION
+        version=APP_VERSION,
+        theme=theme
     )
 
+@app.route("/update_theme", methods=["POST"])
+@login_required
+def update_theme():
+    if not current_user.is_admin:
+        return redirect(url_for("index"))
 
+    theme = request.form.get("theme", "").strip().lower()
 
-# ---------------------------
-#       TEMPLATES
-# ---------------------------
+    allowed = {"default", "dark", "light", "cosmos"}
+    if theme not in allowed:
+        theme = "default"
 
-INDEX_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="{{ 'sv' if lang == 'sv' else 'en' }}">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ t("INDEX_TITLE") }} v{{ version }}</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-    body {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #111827 100%);
-        color: #e5e7eb;
-        min-height: 100vh;
-    }
-    @media (min-width: 1200px) {
-        .container {
-            max-width: 1500px;
-        }
-    }
-    .main-card {
-        margin-top: 30px;
-        border-radius: 12px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-    }
-    .blink-new {
-        animation: blink-bg 1s linear infinite;
-    }
-    @keyframes blink-bg {
-        0% { background-color: #e11d48; }
-        50% { background-color: #f97316; }
-        100% { background-color: #e11d48; }
-    }
-    .version-pill {
-        font-size: 0.8rem;
-        padding: 0.15rem 0.6rem;
-        border-radius: 999px;
-        background-color: #111827;
-        color: #9ca3af;
-        border: 1px solid #374151;
-        margin-left: 0.5rem;
-    }
-    .status-badge-online {
-        display: inline-block;
-        padding: 0.2rem 0.6rem;
-        border-radius: 999px;
-        background-color: #16a34a;
-        color: #ecfdf5;
-        font-size: 0.8rem;
-    }
-    .status-badge-offline {
-        display: inline-block;
-        padding: 0.2rem 0.6rem;
-        border-radius: 999px;
-        background-color: #374151;
-        color: #e5e7eb;
-        font-size: 0.8rem;
-    }
-    .table-dark-header {
-        background-color: #111827;
-    }
-    .table-dark-header th {
-        background-color: #111827;
-        border-color: #1f2933;
-        color: #ffffff !important;
-        white-space: nowrap;
-    }
-    .table-dark-header th a {
-        color: #a5b4fc !important;
-        text-decoration: none;
-    }
-    .table-dark-header th a:hover {
-        text-decoration: underline;
-    }
-    .table-dark-body tbody tr {
-        background-color: #020617;
-        color: #e5e7eb;
-    }
-    .table-dark-body tbody tr:nth-child(even) {
-        background-color: #030712;
-    }
-    .table-dark-body tbody tr:hover {
-        background-color: #0f172a;
-    }
-    .navbar-eggscan {
-        background-color: #020617;
-        border-bottom: 1px solid #1f2937;
-    }
-    .navbar-eggscan a, .navbar-eggscan span {
-        color: #e5e7eb !important;
-    }
-    .badge-role {
-        font-size: 0.75rem;
-        background-color: #4b5563;
-    }
-    footer {
-        margin-top: 20px;
-        padding-top: 10px;
-        border-top: 1px solid #1f2937;
-        font-size: 0.8rem;
-        color: #9ca3af;
-    }
-    .btn-outline-secondary {
-        border-color: #4b5563;
-        color: #e5e7eb;
-    }
-    .btn-outline-secondary:hover {
-        background-color: #4b5563;
-        color: #f9fafb;
-    }
-    .card-header {
-        background-color: #020617;
-        border-bottom: 1px solid #1f2937;
-    }
-    .card-body {
-        background-color: #020617;
-    }
-    .ip-modal-list-item {
-        background-color: #ffffff;
-        color: #000000;
-        border-color: #e5e7eb;
-        font-weight: 500;
-    }
-    .toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 44px;
-        height: 24px;
-    }
-    .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-    .toggle-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #4b5563;
-        transition: 0.3s;
-        border-radius: 9999px;
-    }
-    .toggle-slider::before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: #f9fafb;
-        transition: 0.3s;
-        border-radius: 9999px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-    }
-    .toggle-switch input:checked + .toggle-slider {
-        background-color: #22c55e;
-    }
-    .toggle-switch input:checked + .toggle-slider::before {
-        transform: translateX(20px);
-    }
-    .toggle-switch input:focus + .toggle-slider {
-        box-shadow: 0 0 0 3px rgba(34,197,94,0.4);
-    }
-    .stats-row {
-        margin-bottom: 15px;
-    }
-    .stat-card {
-        background-color: #020617;
-        border-radius: 10px;
-        border: 1px solid #1f2937;
-        padding: 8px 12px;
-        display: flex;
-        flex-direction: column;
-    }
-    .stat-label {
-        font-size: 0.75rem;
-        letter-spacing: .04em;
-        text-transform: uppercase;
-        color: #9ca3af;
-        margin-bottom: 2px;
-    }
-    .stat-value {
-        font-size: 1.2rem;
-        font-weight: 600;
-        color: #e5e7eb;
-    }
-    .status-bar {
-        background-color: #020617;
-        border-radius: 8px;
-        border: 1px solid #1f2937;
-        padding: 6px 12px;
-        font-size: 0.85rem;
-        display: flex;
-        flex-wrap: nowrap;
-        align-items: center;
-        margin-bottom: 10px;
-        overflow-x: auto;
-    }
-    .status-item {
-        margin-right: 18px;
-        display: inline-flex;
-        align-items: center;
-        white-space: nowrap;
-    }
-    .status-dot-online,
-    .status-dot-offline,
-    .status-dot-new {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        display: inline-block;
-        margin-right: 6px;
-    }
-    .status-dot-online { background-color: #22c55e; }
-    .status-dot-offline { background-color: #ef4444; }
-    .status-dot-new { background-color: #facc15; }
-    .status-label {
-        color: #9ca3af;
-        margin-right: 4px;
-    }
-    .status-value {
-        color: #e5e7eb;
-        font-weight: 500;
-    }
-    </style>
-</head>
-<body>
-<nav class="navbar navbar-expand navbar-eggscan">
-  <div class="container">
-    <a class="navbar-brand font-weight-bold" href="#">
-      {{ t("INDEX_TITLE") }}
-      <span class="version-pill">{{ t("VERSION_LABEL") }} {{ version }}</span>
-    </a>
-    <div class="ml-auto d-flex align-items-center">
-      <span class="mr-3">
-        {{ t("LOGGED_IN_AS") }} {{ current_user.username }}
-        {% if current_user.is_admin %}
-          <span class="badge badge-role ml-1">admin</span>
-        {% endif %}
-      </span>
-      <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-danger mr-2">{{ t("LOGOUT") }}</a>
-      <a href="{{ url_for('change_password') }}" class="btn btn-sm btn-outline-warning mr-2">{{ t("CHANGE_PASSWORD") }}</a>
-      {% if current_user.is_admin %}
-      <a href="{{ url_for('manage_users') }}" class="btn btn-sm btn-outline-info mr-2">{{ t("MANAGE_USERS") }}</a>
-      <a href="{{ url_for('config_eggscan') }}" class="btn btn-sm btn-outline-light">{{ t("SETTINGS") }}</a>
-      {% endif %}
-    </div>
-  </div>
-</nav>
-
-<div class="container">
-  <div class="card main-card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <div>
-        <h4 class="mb-0">{{ t("INDEX_TITLE") }}</h4>
-        <small class="text-muted">{{ t("VERSION_LABEL") }} {{ version }}</small>
-      </div>
-      <form method="POST" action="{{ url_for('manual_ping') }}" class="form-inline">
-        <div class="form-group mr-2 mb-0">
-          <input type="text" name="ip" id="ipInput" class="form-control form-control-sm"
-                 placeholder="{{ t('MANUAL_PING_PLACEHOLDER') }}" required>
-        </div>
-        <div class="d-flex align-items-center mr-2 mb-0">
-          <label class="toggle-switch mb-0">
-            <input type="checkbox" name="ipv6" id="ipv6Check">
-            <span class="toggle-slider"></span>
-          </label>
-          <label for="ipv6Check" class="mb-0 ml-2 text-light">IPv6</label>
-        </div>
-        <button type="submit" class="btn btn-outline-secondary btn-sm">{{ t("MANUAL_PING_BUTTON") }}</button>
-      </form>
-    </div>
-    <div class="card-body">
-
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          <div class="mb-3">
-          {% for category, msg in messages %}
-            <div class="alert alert-{{ 'danger' if category=='danger' else category }} mb-1" role="alert">
-              {{ msg }}
-            </div>
-          {% endfor %}
-          </div>
-        {% endif %}
-      {% endwith %}
-
-      <form method="GET" class="form-inline mb-3">
-        <input type="text" name="search" class="form-control form-control-sm mr-2"
-               value="{{ search_q }}" placeholder="{{ t('SEARCH_PLACEHOLDER') }}">
-        <label class="mr-2 text-light">{{ t("FILTER_LABEL") }}</label>
-        <select name="filter" class="form-control form-control-sm mr-2">
-            <option value="both" {% if filter_mode=='both' %}selected{% endif %}>{{ t("FILTER_BOTH") }}</option>
-            <option value="online" {% if filter_mode=='online' %}selected{% endif %}>{{ t("FILTER_ONLINE") }}</option>
-            <option value="offline" {% if filter_mode=='offline' %}selected{% endif %}>{{ t("FILTER_OFFLINE") }}</option>
-        </select>
-        <button type="submit" class="btn btn-outline-primary btn-sm">{{ t("SEARCH_FILTER_BUTTON") }}</button>
-      </form>
-
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <div class="text-light">
-        </div>
-        <form method="POST" action="{{ url_for('force_scan') }}" class="mb-0">
-          <button type="submit" class="btn btn-sm btn-primary">{{ t("SCAN_NOW") }}</button>
-        </form>
-      </div>
-
-      <div class="stats-row">
-        <div class="row">
-          <div class="col-md-6 col-sm-12 mb-2">
-            <div class="stat-card">
-              <div class="stat-label">{{ t("STATS_ONLINE_TOTAL_LABEL") }}</div>
-              <div class="stat-value">
-                {{ online_devices }} / {{ total_devices }}
-              </div>
-            </div>
-          </div>
-          <div class="col-md-6 col-sm-12 mb-2">
-            <div class="stat-card">
-              <div class="stat-label">{{ t("STATS_NEW_DEVICES_LABEL") }}</div>
-              <div class="stat-value">
-                {{ new_devices }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="status-bar">
-        <div class="status-item">
-          <span class="status-dot-online"></span>
-          <span class="status-label">{{ t("STATUSBAR_ONLINE") }}:</span>
-          <span class="status-value">{{ online_devices }}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-dot-offline"></span>
-          <span class="status-label">{{ t("STATUSBAR_OFFLINE") }}:</span>
-          <span class="status-value">{{ offline_devices }}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">{{ t("STATUSBAR_TOTAL") }}:</span>
-          <span class="status-value">{{ total_devices }}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-dot-new"></span>
-          <span class="status-label">{{ t("STATUSBAR_NEW") }}:</span>
-          <span class="status-value">{{ new_devices }}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">{{ t("STATUSBAR_LAST_SCAN") }}:</span>
-          <span class="status-value">
-            {% if last_scan_time %}
-              {{ last_scan_time }}
-            {% else %}
-              -
-            {% endif %}
-          </span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">{{ t("STATUSBAR_IPV6") }}:</span>
-          <span class="status-value">
-            {% if ipv6_enabled %}
-              {{ t("STATUSBAR_ON") }}
-            {% else %}
-              {{ t("STATUSBAR_OFF") }}
-            {% endif %}
-          </span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">{{ t("CONFIG_SCAN_INTERVAL") }}</span>
-          <span class="status-value">
-            {% if active_scan_interval %}
-              {{ active_scan_interval }}
-            {% else %}
-              -
-            {% endif %}
-            {% if configured_scan_interval and configured_scan_interval != active_scan_interval %}
-              ({{ configured_scan_interval }})
-            {% endif %}
-          </span>
-        </div>
-
-
-      </div>
-
-      {% if scan_status == "running" %}
-      <div class="alert alert-info d-flex align-items-center" id="scan-info">
-        <strong>{{ t("SCAN_RUNNING") }}</strong>
-        <div class="spinner-border text-primary ml-auto" role="status" aria-hidden="true"></div>
-      </div>
-      {% endif %}
-
-      <div class="table-responsive table-dark-body">
-        <table class="table table-sm mb-0">
-          <thead class="table-dark-header text-white">
-            <tr>
-                <th>
-                  <a href="?sort=ip&dir={% if sort_field=='ip' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{filter_mode}}&search={{search_q}}">
-                    {{ t("TABLE_IP") }}
-                    {% if sort_field == 'ip' %}
-                      {% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}
-                    {% else %}
-                      ↕
-                    {% endif %}
-                  </a>
-                </th>
-                <th>
-                  <a href="?sort=mac&dir={% if sort_field=='mac' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{filter_mode}}&search={{search_q}}">
-                    {{ t("TABLE_MAC") }}
-                    {% if sort_field == 'mac' %}
-                      {% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}
-                    {% else %}
-                      ↕
-                    {% endif %}
-                  </a>
-                </th>
-                <th>
-                  <a href="?sort=alias&dir={% if sort_field=='alias' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{filter_mode}}&search={{search_q}}">
-                    {{ t("TABLE_ALIAS") }}
-                    {% if sort_field == 'alias' %}
-                      {% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}
-                    {% else %}
-                      ↕
-                    {% endif %}
-                  </a>
-                </th>
-                <th>{{ t("TABLE_PING") }}</th>
-                <th>
-                  <a href="?sort=manufacturer&dir={% if sort_field=='manufacturer' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{filter_mode}}&search={{search_q}}">
-                    {{ t("TABLE_MANUFACTURER") }}
-                    {% if sort_field == 'manufacturer' %}
-                      {% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}
-                    {% else %}
-                      ↕
-                    {% endif %}
-                  </a>
-                </th>
-                <th>
-                  <a href="?sort=updated&dir={% if sort_field=='updated' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{filter_mode}}&search={{search_q}}">
-                    {{ t("TABLE_LAST_SEEN") }}
-                    {% if sort_field == 'updated' %}
-                      {% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}
-                    {% else %}
-                      ↕
-                    {% endif %}
-                  </a>
-                </th>
-                <th>{{ t("TABLE_STATUS") }}</th>
-                <th>{{ t("TABLE_ACTIONS") }}</th>
-            </tr>
-          </thead>
-          <tbody>
-          {% for dev in devices %}
-            {% if dev.last_seen_scan == last_scan_id %}
-                {% set status_text = "Online" %}
-                {% set status_class = "status-badge-online" %}
-            {% else %}
-                {% set status_text = "Offline" %}
-                {% set status_class = "status-badge-offline" %}
-            {% endif %}
-
-            {% if highlight_new and dev.is_new %}
-                {% set row_class = "blink-new" %}
-            {% else %}
-                {% set row_class = "" %}
-            {% endif %}
-
-            <tr class="{{ row_class }}">
-                <td class="align-middle">
-                    {% if dev.ip_address and dev.ip_address != "-" %}
-                        {% set ip_list = dev.ip_address.split(",") %}
-                        {{ ip_list[0] | trim }}
-                        {% if ip_list|length > 1 %}
-                            <button type="button"
-                                    class="btn btn-link btn-sm p-0 ml-1"
-                                    data-toggle="modal"
-                                    data-target="#ipModal{{ dev.id }}">
-                                (+{{ ip_list|length - 1 }} more)
-                            </button>
-                        {% endif %}
-                    {% else %}
-                        -
-                    {% endif %}
-                </td>
-                <td class="align-middle"><code class="text-light">{{ dev.mac_address or "N/A" }}</code></td>
-                <td class="align-middle">
-                    {% if dev.alias %}
-                        <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ dev.alias }}</a>
-                    {% else %}
-                        <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ t("ALIAS_NONE") }}</a>
-                    {% endif %}
-                </td>
-                <td class="align-middle">
-                    {% if dev.ip_address != "-" %}
-                        <form method="POST" action="{{ url_for('ping_device', device_id=dev.id) }}" class="d-inline">
-                            <button type="submit" class="btn btn-info btn-sm">{{ t("TABLE_PING") }}</button>
-                        </form>
-                    {% else %}
-                        -
-                    {% endif %}
-                </td>
-                <td class="align-middle">
-                  <a href="#" data-toggle="modal" data-target="#manufacturerModal{{ dev.id }}">
-                    {% if dev.manufacturer %}
-                      {{ dev.manufacturer }}
-                    {% else %}
-                      {{ t("MANUFACTURER_UNKNOWN") }}
-                    {% endif %}
-                  </a>
-                </td>
-                <td class="align-middle">
-                 {% if dev.last_seen_at %}
-                   {{ dev.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") }}
-                 {% else %}
-                   -
-                 {% endif %}
-                </td>
-                <td class="align-middle">
-                   <span class="{{ status_class }}">{{ status_text }}</span>
-                   {% if dev.is_new %}
-                     <span class="badge badge-warning ml-1">new</span>
-                   {% endif %}
-                </td>
-                <td class="align-middle">
-                    {% if current_user.is_admin %}
-                        <div class="d-flex">
-                            {% if dev.is_new %}
-                                <form method="POST" action="{{ url_for('mark_known', device_id=dev.id) }}" class="mr-1">
-                                    <button type="submit" class="btn btn-warning btn-sm">{{ t("MARK_KNOWN") }}</button>
-                                </form>
-                            {% endif %}
-                            <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
-                                <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">{{ t("DELETE") }}</button>
-                            </form>
-                        </div>
-                    {% else %}
-                        -
-                    {% endif %}
-                </td>
-            </tr>
-
-            <div class="modal fade" id="aliasModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="aliasModalLabel{{ dev.id }}" aria-hidden="true">
-              <div class="modal-dialog" role="document">
-                <form method="POST" action="{{ url_for('update_alias') }}">
-                    <div class="modal-content">
-                      <div class="modal-header">
-                        <h5 class="modal-title text-dark" id="aliasModalLabel{{ dev.id }}">{{ t("ALIAS_MODAL_TITLE") }}</h5>
-                        <button type="button" class="close" data-dismiss="modal" aria-label="Stäng">
-                          <span aria-hidden="true">&times;</span>
-                        </button>
-                      </div>
-                      <div class="modal-body">
-                            <input type="hidden" name="mac" value="{{ dev.mac_address }}">
-                            <div class="form-group">
-                                <label for="aliasInput{{ dev.id }}">{{ t("ALIAS_LABEL") }}</label>
-                                <input type="text" class="form-control text-dark" id="aliasInput{{ dev.id }}" name="alias"
-                                       value="{{ dev.alias or '' }}" placeholder="{{ t('ALIAS_LABEL') }}">
-                            </div>
-                      </div>
-                      <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
-                        <button type="submit" class="btn btn-primary">{{ t("ALIAS_SAVE") }}</button>
-                      </div>
-                    </div>
-                </form>
-              </div>
-            </div>
-
-            <div class="modal fade" id="manufacturerModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="manufacturerModalLabel{{ dev.id }}" aria-hidden="true">
-              <div class="modal-dialog" role="document">
-                <form method="POST" action="{{ url_for('update_manufacturer') }}">
-                  <div class="modal-content">
-                    <div class="modal-header">
-                      <h5 class="modal-title text-dark" id="manufacturerModalLabel{{ dev.id }}">
-                        {{ t("MANUFACTURER_MODAL_TITLE") }}
-                      </h5>
-                      <button type="button" class="close" data-dismiss="modal" aria-label="Stäng">
-                        <span aria-hidden="true">&times;</span>
-                      </button>
-                    </div>
-                    <div class="modal-body">
-                      <input type="hidden" name="mac" value="{{ dev.mac_address }}">
-                      <div class="form-group">
-                        <label for="manufacturerInput{{ dev.id }}">{{ t("MANUFACTURER_LABEL") }}</label>
-                        <input
-                          type="text"
-                          class="form-control text-dark"
-                          id="manufacturerInput{{ dev.id }}"
-                          name="manufacturer"
-                          value="{{ dev.manufacturer or '' }}"
-                          placeholder="{{ t('MANUFACTURER_LABEL') }}"
-                        >
-                      </div>
-                    </div>
-                    <div class="modal-footer">
-                      <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
-                      <button type="submit" class="btn btn-primary">{{ t("MANUFACTURER_SAVE") }}</button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </div>
-
-            {% if dev.ip_address and dev.ip_address != "-" %}
-            <div class="modal fade" id="ipModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="ipModalLabel{{ dev.id }}" aria-hidden="true">
-              <div class="modal-dialog" role="document">
-                <div class="modal-content">
-                  <div class="modal-header">
-                    <h5 class="modal-title text-dark" id="ipModalLabel{{ dev.id }}">
-                      IP addresses for {{ dev.alias or dev.mac_address }}
-                    </h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                      <span aria-hidden="true">&times;</span>
-                    </button>
-                  </div>
-                  <div class="modal-body">
-                    {% set all_ips = dev.ip_address.split(",") %}
-                    <ul class="list-group">
-                      {% for addr in all_ips %}
-                        <li class="list-group-item ip-modal-list-item">
-                          {{ addr | trim }}
-                        </li>
-                      {% endfor %}
-                    </ul>
-                  </div>
-                  <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            {% endif %}
-
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <footer class="text-right">
-        {{ t("INDEX_TITLE") }} - {{ t("VERSION_LABEL") }} {{ version }}
-      </footer>
-    </div>
-  </div>
-</div>
-
-<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-<script>
-  setInterval(function(){
-    fetch("{{ url_for('get_scan_status') }}")
-    .then(res => res.json())
-    .then(data => {
-      if(data.status === "running"){
-        let scanInfo = document.getElementById("scan-info");
-        if(!scanInfo){
-          let scanDiv = document.createElement("div");
-          scanDiv.className = "alert alert-info d-flex align-items-center mb-3";
-          scanDiv.id = "scan-info";
-          scanDiv.innerHTML = '<strong>{{ t("SCAN_RUNNING") }}</strong><div class="spinner-border text-primary ml-auto" role="status" aria-hidden="true"></div>';
-          let cardBody = document.querySelector(".card-body");
-          if(cardBody){
-            cardBody.insertBefore(scanDiv, cardBody.firstChild.nextSibling);
-          }
-        }
-      } else if(data.status === "done"){
-        let scanInfo = document.getElementById("scan-info");
-        if(scanInfo){
-          scanInfo.remove();
-          setTimeout(function(){
-            window.location.reload();
-          }, 2000);
-        }
-      }
-    })
-    .catch(error => {
-      console.error('Error fetching scan status:', error);
-    });
-  }, 2000);
-</script>
-</body>
-</html>
-"""
-
-
-SETUP_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="{{ 'sv' if lang == 'sv' else 'en' }}">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ t("SETUP_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-    body {
-        background: radial-gradient(circle at top, #1d4ed8 0, #020617 55%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .card-setup {
-        border-radius: 12px;
-        box-shadow: 0 15px 35px rgba(15,23,42,0.7);
-        width: 100%;
-        max-width: 450px;
-    }
-    .app-title {
-        font-weight: 700;
-    }
-    .version-pill {
-        font-size: 0.8rem;
-        padding: 0.15rem 0.6rem;
-        border-radius: 999px;
-        background-color: #eff6ff;
-        color: #1d4ed8;
-        border: 1px solid #bfdbfe;
-        margin-left: 0.5rem;
-    }
-    </style>
-</head>
-<body>
-<div class="card card-setup">
-  <div class="card-header bg-white border-0">
-    <h4 class="mb-0 app-title">
-      {{ t("INDEX_TITLE") }}
-      <span class="version-pill">{{ t("VERSION_LABEL") }} {{ version }}</span>
-    </h4>
-    <small class="text-muted">{{ t("SETUP_TITLE") }}</small>
-  </div>
-  <div class="card-body">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div class="mb-3">
-        {% for category, msg in messages %}
-          <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
-            {{ msg }}
-          </div>
-        {% endfor %}
-        </div>
-      {% endif %}
-    {% endwith %}
-
-    <form method="POST" class="mt-2">
-        <div class="form-group">
-            <label for="language">{{ t("LANGUAGE_LABEL") }}</label>
-            <select name="language" id="language" class="form-control">
-                <option value="sv" {% if lang == 'sv' %}selected{% endif %}>{{ t("LANG_SV") }}</option>
-                <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t("LANG_EN") }}</option>
-            </select>
-        </div>
-
-        <div class="form-group">
-            <label>{{ t("SETUP_USERNAME") }}</label>
-            <input type="text" name="username" class="form-control" required>
-        </div>
-        <div class="form-group">
-            <label>{{ t("SETUP_PASSWORD") }}</label>
-            <input type="password" name="password" class="form-control" required>
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">{{ t("SETUP_CREATE_ADMIN") }}</button>
-    </form>
-  </div>
-</div>
-</body>
-</html>
-"""
-
-LOGIN_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="{{ 'sv' if lang == 'sv' else 'en' }}">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ t("LOGIN_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-    body {
-        background: radial-gradient(circle at top, #22c55e 0, #020617 55%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .card-login {
-        border-radius: 12px;
-        box-shadow: 0 15px 35px rgba(15,23,42,0.7);
-        width: 100%;
-        max-width: 420px;
-    }
-    .app-title {
-        font-weight: 700;
-    }
-    .version-pill {
-        font-size: 0.8rem;
-        padding: 0.15rem 0.6rem;
-        border-radius: 999px;
-        background-color: #ecfdf5;
-        color: #15803d;
-        border: 1px solid #bbf7d0;
-        margin-left: 0.5rem;
-    }
-    </style>
-</head>
-<body>
-<div class="card card-login">
-  <div class="card-header bg-white border-0">
-    <h4 class="mb-0 app-title">
-      {{ t("INDEX_TITLE") }}
-      <span class="version-pill">{{ t("VERSION_LABEL") }} {{ version }}</span>
-    </h4>
-    <small class="text-muted">{{ t("LOGIN_TITLE") }}</small>
-  </div>
-  <div class="card-body">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div class="mb-3">
-        {% for category, msg in messages %}
-          <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
-            {{ msg }}
-          </div>
-        {% endfor %}
-        </div>
-      {% endif %}
-    {% endwith %}
-
-    <form method="POST" class="mt-2">
-        <div class="form-group">
-            <label for="language">{{ t("LANGUAGE_LABEL") }}</label>
-            <select name="language" id="language" class="form-control">
-                <option value="sv" {% if lang == 'sv' %}selected{% endif %}>{{ t("LANG_SV") }}</option>
-                <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t("LANG_EN") }}</option>
-            </select>
-        </div>
-
-        <div class="form-group">
-            <label>{{ t("LOGIN_USERNAME") }}</label>
-            <input type="text" name="username" class="form-control" required>
-        </div>
-        <div class="form-group">
-            <label>{{ t("LOGIN_PASSWORD") }}</label>
-            <input type="password" name="password" class="form-control" required>
-        </div>
-        <button type="submit" class="btn btn-success btn-block">{{ t("LOGIN_BUTTON") }}</button>
-    </form>
-  </div>
-</div>
-</body>
-</html>
-"""
-
-CHANGE_PASSWORD_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="{{ 'sv' if lang == 'sv' else 'en' }}">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ t("CHANGE_PASSWORD_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-    body {
-        background-color: #020617;
-        color: #e5e7eb;
-        min-height: 100vh;
-    }
-    .card-main {
-        margin-top: 40px;
-        border-radius: 12px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.6);
-    }
-    </style>
-</head>
-<body>
-<div class="container">
-  <div class="card card-main">
-    <div class="card-header bg-dark text-light d-flex justify-content-between align-items-center">
-      <div>
-        <h5 class="mb-0">{{ t("CHANGE_PASSWORD_TITLE") }}</h5>
-        <small class="text-muted">{{ t("VERSION_LABEL") }} {{ version }}</small>
-      </div>
-      <div>
-        <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">{{ t("BACK") }}</a>
-        <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</a>
-      </div>
-    </div>
-    <div class="card-body bg-dark text-light">
-
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          <div class="mb-3">
-          {% for category, msg in messages %}
-            <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
-              {{ msg }}
-            </div>
-          {% endfor %}
-          </div>
-        {% endif %}
-      {% endwith %}
-
-      <form method="POST">
-        <div class="form-group">
-            <label>{{ t("CHANGE_PASSWORD_NEW") }}</label>
-            <input type="password" name="password" class="form-control" required>
-        </div>
-        <button type="submit" class="btn btn-primary">{{ t("CHANGE_PASSWORD_UPDATE") }}</button>
-      </form>
-    </div>
-  </div>
-</div>
-</body>
-</html>
-"""
-
-MANAGE_USERS_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="{{ 'sv' if lang == 'sv' else 'en' }}">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ t("MANAGE_USERS_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-    body {
-        background-color: #020617;
-        color: #e5e7eb;
-        min-height: 100vh;
-    }
-    .card-main {
-        margin-top: 40px;
-        border-radius: 12px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.6);
-    }
-    </style>
-</head>
-<body>
-<div class="container">
-  <div class="card card-main">
-    <div class="card-header bg-dark text-light d-flex justify-content-between align-items-center">
-      <div>
-        <h5 class="mb-0">{{ t("MANAGE_USERS_TITLE") }}</h5>
-        <small class="text-muted">{{ t("VERSION_LABEL") }} {{ version }}</small>
-      </div>
-      <div>
-        <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">{{ t("BACK") }}</a>
-        <a href="{{ url_for('change_password') }}" class="btn btn-warning btn-sm">{{ t("CHANGE_PASSWORD") }}</a>
-        <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</a>
-      </div>
-    </div>
-    <div class="card-body bg-dark text-light">
-
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          <div class="mb-3">
-          {% for category, msg in messages %}
-            <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
-              {{ msg }}
-            </div>
-          {% endfor %}
-          </div>
-        {% endif %}
-      {% endwith %}
-
-      <h5>{{ t("MANAGE_USERS_ADD_TITLE") }}</h5>
-      <form method="POST" class="form-inline mb-4">
-          <input type="hidden" name="action" value="add">
-          <input name="username" class="form-control mr-2 mb-2" placeholder="{{ t('MANAGE_USERS_USERNAME') }}" required>
-          <input name="password" class="form-control mr-2 mb-2" placeholder="{{ t('MANAGE_USERS_PASSWORD') }}" type="password" required>
-          <button type="submit" class="btn btn-primary mb-2">{{ t("MANAGE_USERS_ADD_BUTTON") }}</button>
-      </form>
-
-      <h5>{{ t("MANAGE_USERS_EXISTING") }}</h5>
-      <div class="table-responsive">
-        <table class="table table-dark table-striped table-sm">
-            <thead>
-                <tr>
-                    <th>{{ t("MANAGE_USERS_ID") }}</th>
-                    <th>{{ t("MANAGE_USERS_USERNAME") }}</th>
-                    <th>{{ t("MANAGE_USERS_IS_ADMIN") }}</th>
-                    <th>{{ t("MANAGE_USERS_ACTION") }}</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for u in users %}
-            <tr>
-                <td>{{ u.id }}</td>
-                <td>{{ u.username }}</td>
-                <td>{{ t("MANAGE_USERS_ADMIN_LABEL") if u.is_admin else t("MANAGE_USERS_NOT_ADMIN_LABEL") }}</td>
-                <td>
-                    {% if not u.is_admin %}
-                    <form method="POST" class="d-inline">
-                        <input type="hidden" name="action" value="delete">
-                        <input type="hidden" name="user_id" value="{{ u.id }}">
-                        <button type="submit" class="btn btn-danger btn-sm">{{ t("MANAGE_USERS_DELETE_BUTTON") }}</button>
-                    </form>
-                    {% else %}
-                    {{ t("MANAGE_USERS_ADMIN_TAG") }}
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-</body>
-</html>
-"""
-
-CONFIG_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="{{ 'sv' if lang == 'sv' else 'en' }}">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ t("CONFIG_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-    body {
-        background-color: #020617;
-        color: #e5e7eb;
-        min-height: 100vh;
-    }
-    .card-main {
-        margin-top: 40px;
-        border-radius: 12px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.6);
-    }
-
-    /* Toggle switches */
-    .toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 44px;
-        height: 24px;
-    }
-
-    .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-
-    .toggle-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #4b5563;
-        transition: 0.3s;
-        border-radius: 9999px;
-    }
-
-    .toggle-slider::before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: #f9fafb;
-        transition: 0.3s;
-        border-radius: 9999px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-    }
-
-    .toggle-switch input:checked + .toggle-slider {
-        background-color: #22c55e;
-    }
-
-    .toggle-switch input:checked + .toggle-slider::before {
-        transform: translateX(20px);
-    }
-
-    .toggle-switch input:focus + .toggle-slider {
-        box-shadow: 0 0 0 3px rgba(34,197,94,0.4);
-    }
-
-    </style>
-</head>
-<body>
-<div class="container">
-  <div class="card card-main">
-    <div class="card-header bg-dark text-light d-flex justify-content-between align-items-center">
-      <div>
-        <h5 class="mb-0">{{ t("CONFIG_TITLE") }}</h5>
-        <small class="text-muted">{{ t("VERSION_LABEL") }} {{ version }}</small>
-      </div>
-      <div>
-        <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">{{ t("BACK") }}</a>
-        <a href="{{ url_for('change_password') }}" class="btn btn-warning btn-sm">{{ t("CHANGE_PASSWORD") }}</a>
-        <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</a>
-      </div>
-    </div>
-    <div class="card-body bg-dark text-light">
-
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          <div class="mb-3">
-          {% for category, msg in messages %}
-            <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
-              {{ msg }}
-            </div>
-          {% endfor %}
-          </div>
-        {% endif %}
-      {% endwith %}
-
-      <form method="POST" class="form-inline mb-3">
-          <input type="hidden" name="action" value="add_subnet">
-          <label class="mr-2">{{ t("CONFIG_ADD_SUBNET_LABEL") }}</label>
-          <input type="text" name="cidr" class="form-control mr-2" required>
-          <button type="submit" class="btn btn-primary">{{ t("CONFIG_ADD_SUBNET_BUTTON") }}</button>
-      </form>
-
-      <div class="table-responsive mb-3">
-        <table class="table table-dark table-striped table-sm">
-            <thead>
-                <tr>
-                    <th>{{ t("CONFIG_SUBNET_COL") }}</th>
-                    <th>{{ t("CONFIG_SUBNET_DELETE_COL") }}</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for sn in subnets %}
-            <tr>
-                <td>{{ sn.cidr }}</td>
-                <td>
-                    <form method="POST" class="d-inline">
-                        <input type="hidden" name="action" value="delete_subnet">
-                        <input type="hidden" name="subnet_id" value="{{ sn.id }}">
-                        <button type="submit" class="btn btn-danger btn-sm">{{ t("CONFIG_SUBNET_DELETE_BUTTON") }}</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-      </div>
-
-      <form method="POST" class="mb-4">
-          <input type="hidden" name="action" value="guess">
-          <button type="submit" class="btn btn-info">{{ t("CONFIG_GUESS_BUTTON") }}</button>
-      </form>
-
-      <hr class="border-secondary">
-      <h5 class="mb-3">{{ t("CONFIG_OTHER_SETTINGS") }}</h5>
-      <form method="POST">
-        <input type="hidden" name="action" value="update_settings">
-
-        <div class="form-group mb-2">
-            <label for="language">{{ t("LANGUAGE_LABEL") }}</label>
-            <select name="language" id="language" class="form-control">
-                <option value="sv" {% if lang == 'sv' %}selected{% endif %}>{{ t("LANG_SV") }}</option>
-                <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t("LANG_EN") }}</option>
-            </select>
-        </div>
-
-        <div class="d-flex align-items-center mb-2">
-            <span class="mr-2">{{ t("CONFIG_IPV6_ENABLE") }}</span>
-            <label class="toggle-switch mb-0">
-                <input type="checkbox" name="ipv6" id="ipv6check" {% if ipv6 %}checked{% endif %}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-
-        <div class="form-group mb-2">
-            <label>
-              {{ t("CONFIG_SCAN_INTERVAL") }}
-              <small class="text-muted">({{ t("CONFIG_SCAN_INTERVAL_HINT") }})</small>
-            </label>
-            <input type="number" name="scan_interval" class="form-control" value="{{ scan_interval }}" min="1" required>
-            <small class="form-text text-muted">
-              {{ t("ACTIVE_SCAN_INTERVAL_LABEL") }}
-              {% if active_scan_interval %}{{ active_scan_interval }}{% else %}-{% endif %}
-            </small>
-        </div>
-
-
-        <div class="d-flex align-items-center mb-2">
-            <span class="mr-2">{{ t("CONFIG_HIGHLIGHT_NEW") }}</span>
-            <label class="toggle-switch mb-0">
-                <input type="checkbox" name="highlight_new" id="highlightCheck" {% if highlight_new %}checked{% endif %}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-
-        <div class="form-group mb-3">
-            <label for="ipv6_utils">{{ t("CONFIG_IPV6_UTILS") }}</label>
-            <input type="text" id="ipv6_utils" name="ipv6_utils" class="form-control" placeholder="eth0 / enp0s3 / wlan0"
-                   value="{{ ipv6_utils }}">
-        </div>
-
-        <button type="submit" class="btn btn-success">{{ t("CONFIG_SAVE_BUTTON") }}</button>
-      </form>
-
-      <div class="mt-4 text-muted">
-        <small>{{ t("INDEX_TITLE") }} - {{ t("VERSION_LABEL") }} {{ version }}</small>
-      </div>
-    </div>
-  </div>
-</div>
-</body>
-</html>
-"""
+    set_setting("theme", theme)
+    return redirect(url_for("config_eggscan"))
 
 # ---------------------------
 #       STARTUP

@@ -1,0 +1,909 @@
+:root{
+  /* =========================================================
+     DEFAULT THEME 
+     ========================================================= */
+
+  --bg-0: #020617;
+  --bg-1: #0f172a;
+  --bg-2: #111827;
+
+  --text-0: #e5e7eb;
+  --text-muted: #9ca3af;
+
+  --border-0: #1f2937;
+
+  --card-bg: var(--bg-0);
+  --card-border: var(--border-0);
+  --card-shadow: 0 10px 25px rgba(0,0,0,0.55);
+
+  --table-head-bg: #0b1220;
+  --table-row-alt: rgba(255,255,255,0.04);
+
+  --input-bg: #0b1220;
+  --input-border: #1f2937;
+  --input-text: #e5e7eb;
+  --input-placeholder: #9ca3af;
+
+  --link: #93c5fd;
+  --link-hover: #bfdbfe;
+}
+
+html, body{
+  height: 100%;
+}
+
+/* =========================================================
+   GLOBAL
+   ========================================================= */
+
+body{
+  color: var(--text-0);
+}
+
+/* =========================================================
+   THEME: DARK 
+   ========================================================= */
+
+body.theme-dark{
+  --bg-0: #0b0f1a;
+  --bg-1: #070a12;
+  --bg-2: #0f1629;
+
+  --text-0: #e6eaf2;
+  --text-muted: #a1a7b3;
+
+  --border-0: rgba(255,255,255,0.10);
+
+  --card-bg: rgba(11,15,26,0.92);
+  --card-border: rgba(255,255,255,0.10);
+  --card-shadow: 0 12px 28px rgba(0,0,0,0.65);
+
+  --table-head-bg: rgba(255,255,255,0.04);
+  --table-row-alt: rgba(255,255,255,0.03);
+
+  --input-bg: rgba(255,255,255,0.05);
+  --input-border: rgba(255,255,255,0.12);
+  --input-text: #e6eaf2;
+  --input-placeholder: #9aa3b2;
+
+  --link: #7dd3fc;
+  --link-hover: #bae6fd;
+}
+
+/* =========================================================
+   THEME: LIGHT 
+   ========================================================= */
+
+body.theme-light{
+  --bg-0: #ffffff;
+  --bg-1: #f3f4f6;
+  --bg-2: #e5e7eb;
+
+  --text-0: #111827;
+  --text-muted: #6b7280;
+
+  --border-0: #d1d5db;
+
+  --card-bg: #ffffff;
+  --card-border: #d1d5db;
+  --card-shadow: 0 10px 25px rgba(0,0,0,0.08);
+
+  --table-head-bg: #f9fafb;
+  --table-row-alt: rgba(0,0,0,0.03);
+
+  --input-bg: #ffffff;
+  --input-border: #d1d5db;
+  --input-text: #111827;
+  --input-placeholder: #9ca3af;
+
+  --link: #2563eb;
+  --link-hover: #1d4ed8;
+}
+
+/* =========================================================
+   THEME: COSMOS 
+   ========================================================= */
+
+body.theme-cosmos{
+  --bg-0: #060913;
+  --bg-1: #03040a;
+  --bg-2: #0a0f25;
+
+  --text-0: #eef3ff;
+  --text-muted: rgba(238,243,255,0.68);
+
+  --border-0: rgba(122, 162, 247, 0.22);
+
+  --card-bg: rgba(6, 9, 19, 0.86);
+  --card-border: rgba(122, 162, 247, 0.24);
+  --card-shadow:
+    0 18px 44px rgba(0,0,0,0.82),
+    0 0 0 1px rgba(122,162,247,0.12),
+    0 0 28px rgba(122,162,247,0.14);
+
+  --table-head-bg: rgba(122, 162, 247, 0.10);
+  --table-row-alt: rgba(122, 162, 247, 0.06);
+
+  --input-bg: rgba(255,255,255,0.06);
+  --input-border: rgba(122, 162, 247, 0.26);
+  --input-text: #eef3ff;
+  --input-placeholder: rgba(238,243,255,0.55);
+
+  --link: #a78bfa;
+  --link-hover: #22d3ee;
+
+  --cosmos-glow: 0 0 0 3px rgba(167, 139, 250, 0.22);
+  --cosmos-glow-strong: 0 0 0 3px rgba(34, 211, 238, 0.24);
+}
+
+/* =========================================================
+   BACKGROUNDS
+   ========================================================= */
+
+html{
+  min-height: 100%;
+  background: transparent;
+}
+
+body.page-app,
+body.page-index{
+  min-height: 100%;
+  background: var(--bg-1) !important;
+}
+
+/* COSMOS: tydlig rymdbakgrund */
+body.theme-cosmos.page-app,
+body.theme-cosmos.page-index{
+  background:
+    radial-gradient(900px 520px at 18% 12%, rgba(167,139,250,0.22), transparent 60%),
+    radial-gradient(900px 520px at 82% 18%, rgba(34,211,238,0.16), transparent 62%),
+    radial-gradient(900px 520px at 55% 92%, rgba(122,162,247,0.18), transparent 60%),
+    linear-gradient(180deg, #02030a 0%, #03040a 42%, #03040a 100%) !important;
+}
+
+
+body.page-setup{
+  background: radial-gradient(circle at top, #1d4ed8 0, #020617 55%) !important;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.page-login{
+  background: radial-gradient(circle at top, #22c55e 0, #020617 55%) !important;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* =========================================================
+   LAYOUT / SHELL
+   ========================================================= */
+
+.page-shell{
+  width: 100%;
+  padding-top: 30px;
+  padding-bottom: 30px;
+}
+
+.card-main{
+  border-radius: 12px;
+}
+
+/* Auth-kort (login/setup) */
+.card-login,
+.card-setup{
+  border-radius: 12px;
+  box-shadow: 0 15px 35px rgba(15,23,42,0.7);
+  width: 100%;
+  max-width: 420px;
+}
+
+.card-setup{ max-width: 450px; }
+
+.app-title{
+  font-weight: 700;
+}
+
+.version-pill{
+  font-size: 0.8rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background-color: #ecfdf5;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  margin-left: 0.5rem;
+}
+
+body.page-setup .version-pill{
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+/* =========================================================
+   CARDS / MODALS (theme-driven)
+   ========================================================= */
+
+.card,
+.modal-content{
+  border-radius: 12px;
+}
+
+.page-app .card,
+.page-index .card,
+.page-app .modal-content,
+.page-index .modal-content{
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow);
+}
+
+.page-app .card-header,
+.page-index .card-header{
+  background-color: var(--card-bg);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.page-app .card-body,
+.page-index .card-body{
+  background-color: var(--card-bg);
+}
+
+.page-app .text-muted,
+.page-index .text-muted{
+  color: var(--text-muted) !important;
+}
+
+/* COSMOS: halo on cards + header glass */
+body.theme-cosmos .page-app .card,
+body.theme-cosmos .page-index .card,
+body.theme-cosmos .page-app .modal-content,
+body.theme-cosmos .page-index .modal-content{
+  box-shadow:
+    var(--card-shadow),
+    0 0 22px rgba(34,211,238,0.10),
+    0 0 28px rgba(167,139,250,0.10) !important;
+}
+
+body.theme-cosmos .page-app .card-header,
+body.theme-cosmos .page-index .card-header{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.00)) !important;
+  border-bottom-color: rgba(122,162,247,0.20) !important;
+}
+
+/* Containers  */
+@media (min-width: 1200px){
+  .container{
+    max-width: 1500px;
+  }
+}
+
+/* =========================================================
+   INPUTS / SELECTS (theme-driven)
+   ========================================================= */
+
+.page-app .form-control,
+.page-index .form-control{
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--input-text);
+}
+
+.page-app .form-control::placeholder,
+.page-index .form-control::placeholder{
+  color: var(--input-placeholder);
+}
+
+.page-app label,
+.page-index label{
+  color: var(--text-0);
+}
+
+/* Fix för bootstrap select-arrow i mörka teman */
+.page-app select.form-control,
+.page-index select.form-control{
+  background-clip: padding-box;
+}
+
+/* COSMOS: focus glow */
+body.theme-cosmos .page-app .form-control:focus,
+body.theme-cosmos .page-index .form-control:focus{
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow: var(--cosmos-glow-strong);
+}
+
+/* =========================================================
+   LINKS (theme-driven)
+   ========================================================= */
+
+.page-app a,
+.page-index a{
+  color: var(--link);
+}
+
+.page-app a:hover,
+.page-index a:hover{
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+/* =========================================================
+   NAVBAR (COSMOS tweak)
+   ========================================================= */
+
+body.theme-cosmos .navbar{
+  background: rgba(3, 4, 10, 0.72) !important;
+  backdrop-filter: blur(7px);
+  border-bottom: 1px solid rgba(122,162,247,0.18);
+}
+
+/* =========================================================
+   DASHBOARD / INDEX CARDS
+   ========================================================= */
+
+.stats-row .row{
+  margin-left: -6px;
+  margin-right: -6px;
+}
+
+.stats-row [class*="col-"]{
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.stat-card{
+  background: linear-gradient(
+    180deg,
+    rgba(2, 6, 23, 0.95),
+    rgba(2, 6, 23, 0.85)
+  );
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  height: 100%;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+
+body.theme-light .stat-card{
+  background: linear-gradient(
+    180deg,
+    rgba(0,0,0,0.02),
+    rgba(0,0,0,0.00)
+  );
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+}
+
+/* COSMOS: stat-cards "nebula glass" */
+body.theme-cosmos .stat-card{
+  background:
+    linear-gradient(180deg, rgba(167,139,250,0.14), rgba(6,9,19,0.72)) !important;
+  border-color: rgba(167,139,250,0.22) !important;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.68),
+    0 0 18px rgba(167,139,250,0.10),
+    0 0 18px rgba(34,211,238,0.08) !important;
+}
+
+.stat-label{
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.stat-value{
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+/* =========================================================
+   STATUS BAR
+   ========================================================= */
+
+.status-bar{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.status-item{
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.status-dot-online,
+.status-dot-offline,
+.status-dot-new{
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-dot-online { background-color: #22c55e; }
+.status-dot-offline { background-color: #ef4444; }
+.status-dot-new { background-color: #facc15; }
+
+body.theme-cosmos .status-dot-online{ background-color: #22d3ee; }
+body.theme-cosmos .status-dot-offline{ background-color: #fb7185; }
+body.theme-cosmos .status-dot-new{ background-color: #a78bfa; }
+
+.status-label{
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.status-value{
+  color: var(--text-0);
+  font-weight: 500;
+}
+
+/* COSMOS: statusbar panel */
+body.theme-cosmos .status-bar{
+  background:
+    linear-gradient(180deg, rgba(122,162,247,0.08), rgba(6,9,19,0.55)) !important;
+  border-color: rgba(122,162,247,0.22) !important;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.55) !important;
+}
+
+/* =========================================================
+   TOGGLE SWITCH
+   ========================================================= */
+
+.toggle-switch{
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input{
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-slider{
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background-color: #4b5563;
+  border-radius: 999px;
+  transition: background-color 0.25s ease;
+}
+
+.toggle-slider::before{
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  top: 3px;
+  background-color: #f9fafb;
+  border-radius: 50%;
+  transition: transform 0.25s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+
+.toggle-switch input:checked + .toggle-slider{
+  background-color: #22c55e;
+}
+
+.toggle-switch input:checked + .toggle-slider::before{
+  transform: translateX(20px);
+}
+
+.toggle-switch input:focus + .toggle-slider{
+  box-shadow: 0 0 0 3px rgba(34,197,94,0.35);
+}
+
+/* =========================================================
+   BLINK NEW DEVICES
+   ========================================================= */
+
+.blink-new{
+  animation: blink-bg 1s linear infinite;
+}
+
+@keyframes blink-bg{
+  0% { background-color: #7f1d1d; }
+  50% { background-color: #b45309; }
+  100% { background-color: #7f1d1d; }
+}
+
+/* =========================================================
+   COSMOS: blink NEW devices 
+   ========================================================= */
+
+body.theme-cosmos .blink-new{
+  animation: blink-cosmos 0.95s ease-in-out infinite;
+}
+
+@keyframes blink-cosmos{
+  0%{
+    background-color: rgba(167,139,250,0.34);
+    box-shadow:
+      inset 0 0 0 1px rgba(167,139,250,0.35),
+      0 0 16px rgba(167,139,250,0.22),
+      0 0 10px rgba(34,211,238,0.12);
+  }
+  50%{
+    background-color: rgba(34,211,238,0.26);
+    box-shadow:
+      inset 0 0 0 1px rgba(34,211,238,0.32),
+      0 0 18px rgba(34,211,238,0.20),
+      0 0 12px rgba(167,139,250,0.12);
+  }
+  100%{
+    background-color: rgba(167,139,250,0.34);
+    box-shadow:
+      inset 0 0 0 1px rgba(167,139,250,0.35),
+      0 0 16px rgba(167,139,250,0.22),
+      0 0 10px rgba(34,211,238,0.12);
+  }
+}
+
+/* =========================================================
+   TABLES (theme-driven)
+   ========================================================= */
+
+.table-theme{
+  background-color: transparent;
+  color: var(--text-0);
+}
+
+.table-theme thead th{
+  background-color: var(--table-head-bg);
+  color: var(--text-0);
+  border-color: var(--card-border) !important;
+}
+
+.table-theme td,
+.table-theme th{
+  border-color: var(--card-border) !important;
+  color: var(--text-0);
+}
+
+.table-theme tbody tr:nth-of-type(odd){
+  background-color: var(--table-row-alt);
+}
+
+.table-theme a{
+  color: var(--link);
+}
+
+.table-theme a:hover{
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+/* COSMOS: table head more "space" */
+body.theme-cosmos .table-theme thead th{
+  background-color: rgba(122, 162, 247, 0.10) !important;
+  border-color: rgba(122,162,247,0.20) !important;
+}
+
+/* =========================================================
+   STATUS CHIPS
+   ========================================================= */
+
+.status-badge-online,
+.status-badge-offline{
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.status-badge-online{
+  background-color: #16a34a;
+  color: #ecfdf5;
+}
+
+.status-badge-offline{
+  background-color: #374151;
+  color: #e5e7eb;
+}
+
+/* LIGHT: */
+body.theme-light .status-badge-offline{
+  background-color: #e5e7eb;
+  color: #111827;
+  border: 1px solid #cbd5e1;
+}
+
+/* COSMOS: chips match theme */
+body.theme-cosmos .status-badge-online{
+  background-color: rgba(34,211,238,0.18);
+  border: 1px solid rgba(34,211,238,0.38);
+  color: #e6fbff;
+}
+
+body.theme-cosmos .status-badge-offline{
+  background-color: rgba(251,113,133,0.14);
+  border: 1px solid rgba(251,113,133,0.30);
+  color: #fff1f2;
+}
+
+/* =========================================
+   INDEX TABLE - FORCE WHITE/PRIMARY TEXT
+   ========================================= */
+
+.page-index .table-dark-body,
+.page-index .table-dark-body table,
+.page-index .table-dark-body tbody,
+.page-index .table-dark-body tr,
+.page-index .table-dark-body td{
+  color: var(--text-0) !important;
+}
+
+.page-index .table-dark-body td small,
+.page-index .table-dark-body td span,
+.page-index .table-dark-body td div{
+  color: var(--text-0) !important;
+}
+
+.page-index .table-dark-body td a{
+  color: var(--link) !important;
+}
+.page-index .table-dark-body td a:hover{
+  color: var(--link-hover) !important;
+}
+
+.page-index .table-dark-body td .btn.btn-link{
+  color: var(--text-0) !important;
+  text-decoration: none;
+}
+.page-index .table-dark-body td .btn.btn-link:hover{
+  color: var(--link-hover) !important;
+  text-decoration: underline;
+}
+
+/* =========================================
+   FIX: Outline buttons hover (dark/default)
+   ========================================= */
+
+.page-app .btn-outline-light:hover,
+.page-app .btn-outline-warning:hover,
+.page-app .btn-outline-info:hover,
+.page-app .btn-outline-secondary:hover{
+  background-color: transparent !important;
+  color: var(--text-0) !important;
+  border-color: var(--link) !important;
+}
+
+.page-app .btn-outline-light:hover,
+.page-app .btn-outline-warning:hover{
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.08);
+}
+
+/* =========================================
+   DARK THEME - Navbar hover
+   ========================================= */
+
+body.theme-dark .navbar-eggscan .btn.btn-outline-light:hover,
+body.theme-dark .navbar-eggscan .btn.btn-outline-light:focus{
+  background-color: rgba(125, 211, 252, 0.20);
+  border-color: rgba(125, 211, 252, 0.75);
+  color: #f8fafc;
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.25);
+}
+
+body.theme-dark .navbar-eggscan .btn.btn-outline-info:hover,
+body.theme-dark .navbar-eggscan .btn.btn-outline-info:focus{
+  background-color: rgba(34, 211, 238, 0.20);
+  border-color: rgba(34, 211, 238, 0.75);
+  color: #f8fafc;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.25);
+}
+
+body.theme-dark .navbar-eggscan .btn.btn-outline-warning:hover,
+body.theme-dark .navbar-eggscan .btn.btn-outline-warning:focus{
+  background-color: rgba(251, 191, 36, 0.28);
+  border-color: rgba(251, 191, 36, 0.85);
+  color: #fffdf5;
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.30);
+}
+
+/* =========================================
+   COSMOS - Navbar hover
+   ========================================= */
+
+body.theme-cosmos .navbar-eggscan .btn.btn-outline-light:hover,
+body.theme-cosmos .navbar-eggscan .btn.btn-outline-light:focus{
+  background-color: rgba(167, 139, 250, 0.18);
+  border-color: rgba(167, 139, 250, 0.60);
+  color: #f8fafc;
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.22);
+}
+
+body.theme-cosmos .navbar-eggscan .btn.btn-outline-info:hover,
+body.theme-cosmos .navbar-eggscan .btn.btn-outline-info:focus{
+  background-color: rgba(34, 211, 238, 0.16);
+  border-color: rgba(34, 211, 238, 0.60);
+  color: #f8fafc;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.20);
+}
+
+body.theme-cosmos .navbar-eggscan .btn.btn-outline-warning:hover,
+body.theme-cosmos .navbar-eggscan .btn.btn-outline-warning:focus{
+  background-color: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.62);
+  color: #fffdf5;
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.18);
+}
+
+/* Cosmos: outline buttons " */
+body.theme-cosmos .page-app .btn-outline-light:hover,
+body.theme-cosmos .page-app .btn-outline-warning:hover,
+body.theme-cosmos .page-app .btn-outline-info:hover,
+body.theme-cosmos .page-app .btn-outline-secondary:hover{
+  background-color: rgba(255,255,255,0.06) !important;
+  color: var(--text-0) !important;
+  border-color: rgba(122,162,247,0.45) !important;
+  box-shadow: 0 0 0 2px rgba(122,162,247,0.14) !important;
+}
+
+/* =========================================================
+   COSMOS: Config page (header buttons) 
+   ========================================================= */
+
+body.theme-cosmos.page-app .card-header .btn{
+  color: var(--text-0) !important;
+  border-color: rgba(122,162,247,0.35) !important;
+  background-color: rgba(7,10,20,0.35) !important;
+}
+
+body.theme-cosmos.page-app .card-header .btn:hover,
+body.theme-cosmos.page-app .card-header .btn:focus{
+  color: #ffffff !important;
+  background-color: rgba(122,162,247,0.22) !important;
+  border-color: rgba(122,162,247,0.65) !important;
+  box-shadow: 0 0 0 3px rgba(122,162,247,0.22) !important;
+}
+
+body.theme-cosmos.page-app .card-header .btn.btn-warning{
+  color: #fff7d6 !important;
+  border-color: rgba(251,191,36,0.55) !important;
+  background-color: rgba(251,191,36,0.14) !important;
+}
+
+body.theme-cosmos.page-app .card-header .btn.btn-warning:hover,
+body.theme-cosmos.page-app .card-header .btn.btn-warning:focus{
+  color: #111827 !important;
+  background-color: rgba(251,191,36,0.80) !important;
+  border-color: rgba(251,191,36,0.95) !important;
+  box-shadow: 0 0 0 3px rgba(251,191,36,0.28) !important;
+}
+
+body.theme-cosmos.page-app .card-header .btn.btn-danger{
+  color: #ffe7eb !important;
+  border-color: rgba(244,63,94,0.55) !important;
+  background-color: rgba(244,63,94,0.14) !important;
+}
+
+body.theme-cosmos.page-app .card-header .btn.btn-danger:hover,
+body.theme-cosmos.page-app .card-header .btn.btn-danger:focus{
+  color: #ffffff !important;
+  background-color: rgba(244,63,94,0.45) !important;
+  border-color: rgba(244,63,94,0.85) !important;
+  box-shadow: 0 0 0 3px rgba(244,63,94,0.22) !important;
+}
+
+body.theme-cosmos.page-app .card-header .btn.btn-secondary{
+  color: var(--text-0) !important;
+  border-color: rgba(167,139,250,0.30) !important;
+  background-color: rgba(167,139,250,0.10) !important;
+}
+
+body.theme-cosmos.page-app .card-header .btn.btn-secondary:hover,
+body.theme-cosmos.page-app .card-header .btn.btn-secondary:focus{
+  color: #ffffff !important;
+  background-color: rgba(167,139,250,0.22) !important;
+  border-color: rgba(167,139,250,0.60) !important;
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.22) !important;
+}
+
+/* =========================================================
+   LIGHT THEME: blink NEW devices 
+   ========================================================= */
+
+body.theme-light .blink-new{
+  animation: blink-light 1.05s ease-in-out infinite;
+}
+
+@keyframes blink-light{
+  0%{
+    background-color: rgba(37, 99, 235, 0.22);
+    box-shadow:
+      inset 0 0 0 1px rgba(30, 64, 175, 0.45),
+      0 0 10px rgba(37, 99, 235, 0.18);
+  }
+  50%{
+    background-color: rgba(22, 163, 74, 0.26);
+    box-shadow:
+      inset 0 0 0 1px rgba(21, 128, 61, 0.45),
+      0 0 12px rgba(22, 163, 74, 0.22);
+  }
+  100%{
+    background-color: rgba(37, 99, 235, 0.22);
+    box-shadow:
+      inset 0 0 0 1px rgba(30, 64, 175, 0.45),
+      0 0 10px rgba(37, 99, 235, 0.18);
+  }
+}
+
+/* =========================================================
+   MODAL: readable text DEFAULT + DARK + COSMOS
+   ========================================================= */
+
+/* Modalens bakgrund + text (inte light) */
+body:not(.theme-light) .modal-content{
+  background-color: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
+  color: var(--text-0) !important;
+}
+
+/* Rubriken är ofta .text-dark i template -> slå över (inte light) */
+body:not(.theme-light) .modal-title,
+body:not(.theme-light) .modal-title.text-dark{
+  color: var(--text-0) !important;
+}
+
+/* All vanlig text i modalen (inte light) */
+body:not(.theme-light) .modal-content p,
+body:not(.theme-light) .modal-content span,
+body:not(.theme-light) .modal-content small,
+body:not(.theme-light) .modal-content div{
+  color: var(--text-0) !important;
+}
+
+/* X-knappen (close) */
+body:not(.theme-light) .modal-header .close{
+  color: var(--text-0) !important;
+  text-shadow: none !important;
+  opacity: 0.9;
+}
+body:not(.theme-light) .modal-header .close:hover{
+  opacity: 1;
+}
+
+/* List-group är vit som standard i bootstrap -> gör den theme-driven (inte light) */
+body:not(.theme-light) .list-group,
+body:not(.theme-light) .list-group-item{
+  background-color: transparent !important;
+  color: var(--text-0) !important;
+  border-color: var(--card-border) !important;
+}
+
+/* IP-rader om du använder list-group-item */
+body:not(.theme-light) .list-group-item.ip-modal-list-item{
+  background-color: rgba(255,255,255,0.04) !important; /* funkar bra i default/dark */
+  border: 1px solid var(--card-border) !important;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+
+/* COSMOS får sin egna mer glowiga variant (vinner över raden ovan) */
+body.theme-cosmos .list-group-item.ip-modal-list-item{
+  background: rgba(122,162,247,0.08) !important;
+  border-color: rgba(122,162,247,0.18) !important;
+}

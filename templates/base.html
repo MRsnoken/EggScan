@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="{{ 'sv' if lang == 'sv' else 'en' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>{% block title %}{{ t("INDEX_TITLE") }} v{{ version }}{% endblock %}</title>
+
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+
+  {% block head_extra %}{% endblock %}
+</head>
+
+<body class="{% block body_class %}page-app{% endblock %} theme-{{ theme if theme else 'default' }}">
+  {% block content %}{% endblock %}
+
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

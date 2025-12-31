@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ t("SETUP_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}{% endblock %}
+{% block body_class %}page-setup theme-auth auth-setup theme-default{% endblock %}
+
+{% block navbar %}{% endblock %}
+{% block container %}
+<div class="auth-wrap">
+  <div class="card auth-card">
+    <div class="card-header bg-white border-0">
+      <h4 class="mb-0 auth-title">
+        {{ t("INDEX_TITLE") }}
+        <span class="version-pill">{{ t("VERSION_LABEL") }} {{ version }}</span>
+      </h4>
+      <small class="text-muted">{{ t("SETUP_TITLE") }}</small>
+    </div>
+
+    <div class="card-body">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="mb-3">
+            {% for category, msg in messages %}
+              <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">{{ msg }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" class="mt-2">
+        <div class="form-group">
+          <label for="language">{{ t("LANGUAGE_LABEL") }}</label>
+          <select name="language" id="language" class="form-control">
+            <option value="sv" {% if lang == 'sv' %}selected{% endif %}>{{ t("LANG_SV") }}</option>
+            <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t("LANG_EN") }}</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>{{ t("SETUP_USERNAME") }}</label>
+          <input type="text" name="username" class="form-control" required>
+        </div>
+
+        <div class="form-group">
+          <label>{{ t("SETUP_PASSWORD") }}</label>
+          <input type="password" name="password" class="form-control" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block">{{ t("SETUP_CREATE_ADMIN") }}</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

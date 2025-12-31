@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t("MANAGE_USERS_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}{% endblock %}
+{% block body_class %}page-app{% endblock %}
+
+{% block content %}
+<div class="page-shell">
+  <div class="container">
+    <div class="card card-main">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h5 class="mb-0">{{ t("MANAGE_USERS_TITLE") }}</h5>
+          <small class="text-muted">{{ t("VERSION_LABEL") }} {{ version }}</small>
+        </div>
+        <div>
+          <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">{{ t("BACK") }}</a>
+          <a href="{{ url_for('change_password') }}" class="btn btn-warning btn-sm">{{ t("CHANGE_PASSWORD") }}</a>
+          <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</a>
+        </div>
+      </div>
+
+      <div class="card-body">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="mb-3">
+              {% for category, msg in messages %}
+                <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
+                  {{ msg }}
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <h5 class="mb-3">{{ t("MANAGE_USERS_ADD_TITLE") }}</h5>
+        <form method="POST" class="form-inline mb-4">
+          <input type="hidden" name="action" value="add">
+          <input name="username" class="form-control mr-2 mb-2" placeholder="{{ t('MANAGE_USERS_USERNAME') }}" required>
+          <input name="password" class="form-control mr-2 mb-2" placeholder="{{ t('MANAGE_USERS_PASSWORD') }}" type="password" required>
+          <button type="submit" class="btn btn-primary mb-2">{{ t("MANAGE_USERS_ADD_BUTTON") }}</button>
+        </form>
+
+        <h5 class="mb-2">{{ t("MANAGE_USERS_EXISTING") }}</h5>
+        <div class="table-responsive">
+	<table class="table table-striped table-sm mb-0 table-theme">
+            <thead>
+              <tr>
+                <th>{{ t("MANAGE_USERS_ID") }}</th>
+                <th>{{ t("MANAGE_USERS_USERNAME") }}</th>
+                <th>{{ t("MANAGE_USERS_IS_ADMIN") }}</th>
+                <th>{{ t("MANAGE_USERS_ACTION") }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in users %}
+              <tr>
+                <td>{{ u.id }}</td>
+                <td>{{ u.username }}</td>
+                <td>{{ t("MANAGE_USERS_ADMIN_LABEL") if u.is_admin else t("MANAGE_USERS_NOT_ADMIN_LABEL") }}</td>
+                <td>
+                  {% if not u.is_admin %}
+                    <form method="POST" class="d-inline">
+                      <input type="hidden" name="action" value="delete">
+                      <input type="hidden" name="user_id" value="{{ u.id }}">
+                      <button type="submit" class="btn btn-danger btn-sm">{{ t("MANAGE_USERS_DELETE_BUTTON") }}</button>
+                    </form>
+                  {% else %}
+                    {{ t("MANAGE_USERS_ADMIN_TAG") }}
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
