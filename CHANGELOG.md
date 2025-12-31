@@ -2,9 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v1.2.1] – 2025-12-31
 ### Fixed
 - Fixed setup page where the admin creation form was not rendered on fresh installs.
+- Fixed installer service start logic on fresh installs (restart now falls back to start).
 
 
 ## [v1.2.0] – 2025-12-31

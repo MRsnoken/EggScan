@@ -265,7 +265,7 @@ echo "Enabling EggScan service at boot..."
 systemctl enable eggscan.service
 
 echo "Restarting EggScan service..."
-systemctl try-restart eggscan.service || systemctl restart eggscan.service || systemctl start eggscan.service
+systemctl restart eggscan.service || systemctl start eggscan.service
 
 echo
 echo "=== Status for eggscan.service ==="
