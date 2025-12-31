@@ -7,9 +7,13 @@ Self-hosted LAN device monitor. Shows IP, MAC, vendor and online status via a si
 EggScan is a lightweight Flask-based web application that scans your local network, shows connected devices, and provides details such as IP, MAC, vendor, ping status, and discovery events.
 It is designed for private LAN environments only and installs through a simple one-command installer script.
 
+ **Official repository:** https://github.com/MRsnoken/EggScan  
+*For security and update safety, please download and install EggScan only from the official repository.*
+
 EGGSCAN IS A HOBBY PROJECT. NOT INTENDED FOR ENTERPRISE OR SECURITY-CRITICAL USE.
 DO NOT EXPOSE EGGSCAN TO THE PUBLIC INTERNET.
 NO HARDENING, NO HTTPS, NO PRODUCTION-GRADE AUTH.
+
 
 <details>
 
