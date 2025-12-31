@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+### Fixed
+- Fixed setup page where the admin creation form was not rendered on fresh installs.
+
+
 ## [v1.2.0] – 2025-12-31
 ### Added
 - Theme support: Default, Dark, Light and Cosmos.
