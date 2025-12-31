@@ -175,6 +175,7 @@ HTTPS/TLS
 Do not expose EggScan directly to the internet.
 
 </details>
+
 <details>
 <summary><strong> License </strong> ⬇</summary>
 
@@ -201,3 +202,8 @@ Use at your own risk.
 Created by MRsnoken.
 Network discovery powered by Nmap and public OUI data.
 </details>
+
+## Contributing
+
+Want to help improve EggScan?  
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening issues or pull requests.
