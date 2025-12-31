@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2.0] – 2025-12-31
+### Added
+- Theme support: Default, Dark, Light and Cosmos.
+- Frontend refactor: UI split into templates and static assets (CSS/JS).
+- Upgrade-safe installer: keeps database and secret key, and backs up old files on upgrade.
+
+
 ## [v1.1.0] – 2025-12-02
 ### Added
 - New dashboard view with summary cards for device statistics (e.g. total devices, online/offline).
