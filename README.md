@@ -3,6 +3,9 @@
 <img width="1890" height="1162" alt="Mainside" src="https://github.com/user-attachments/assets/f4b02944-aae2-4a4f-937a-42b8497d3fca" />
 
 <br><br>
+
+Local-first LAN monitoring with a clean, inspectable web interface.
+<br><br>
 ![Latest release](https://img.shields.io/github/v/release/MRsnoken/EggScan?label=version)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
