@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] – 2026-01-02
+
+### Added
+- Automatic device search without requiring the manual “Search” button.
+- Egg emoji 🥚 added to the navbar for clearer branding and visual identity.
+
+### Changed
+- Improved scan update behavior:
+  - Page refresh is deferred while a modal is open or a search filter is active.
+  - An “Update” button is shown when new scan results are available.
+- “Search” button removed from the UI, while keeping Enter key submission as a fallback.
+- Device counters and UI state now update immediately when a device is marked as known, without requiring a full page reload.
+
+### Improved
+- Better text contrast and readability:
+  - Stronger label colors on `setup.html` and `login.html`.
+  - Improved visibility of text inside modules on the index page.
+- Smoother and more predictable UI behavior during scans and modal interactions.
+
+
+
 ## [v1.2.1] – 2025-12-31
 ### Fixed
 - Fixed setup page where the admin creation form was not rendered on fresh installs.

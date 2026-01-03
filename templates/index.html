@@ -7,7 +7,7 @@
 <nav class="navbar navbar-expand navbar-eggscan">
   <div class="container">
     <a class="navbar-brand font-weight-bold" href="{{ url_for('index') }}">
-      {{ t("INDEX_TITLE") }}
+      {{ t("INDEX_TITLE") }} 🥚
       <span class="version-pill">{{ t("VERSION_LABEL") }} {{ version }}</span>
     </a>
 
@@ -70,21 +70,40 @@
         {% endif %}
       {% endwith %}
 
-      <form method="GET" class="form-inline mb-3">
-        <input type="text" name="search" class="form-control form-control-sm mr-2"
-               value="{{ search_q }}" placeholder="{{ t('SEARCH_PLACEHOLDER') }}">
+      <form method="GET" class="form-inline mb-3" id="serverFilterForm">
+        <input
+          type="text"
+          name="search"
+          id="liveSearch"
+          class="form-control form-control-sm mr-2"
+          value="{{ search_q }}"
+          placeholder="{{ t('SEARCH_PLACEHOLDER') }}"
+          autocomplete="off"
+        >
 
         <label class="mr-2 text-light">{{ t("FILTER_LABEL") }}</label>
-        <select name="filter" class="form-control form-control-sm mr-2">
+        <select name="filter" id="liveFilter" class="form-control form-control-sm mr-2">
           <option value="both" {% if filter_mode=='both' %}selected{% endif %}>{{ t("FILTER_BOTH") }}</option>
           <option value="online" {% if filter_mode=='online' %}selected{% endif %}>{{ t("FILTER_ONLINE") }}</option>
           <option value="offline" {% if filter_mode=='offline' %}selected{% endif %}>{{ t("FILTER_OFFLINE") }}</option>
         </select>
 
+        <button
+          type="button"
+          id="scanUpdateBtn"
+          class="btn btn-outline-success btn-sm"
+          style="display:none"
+          data-label="{{ t('SCAN_UPDATE_BUTTON') }}"
+          data-title="{{ t('SCAN_UPDATE_AVAILABLE') }}"
+          title="{{ t('SCAN_UPDATE_AVAILABLE') }}"
+        >
+          {{ t("SCAN_UPDATE_BUTTON") }}
+        </button>
+
         <input type="hidden" name="sort" value="{{ sort_field }}">
         <input type="hidden" name="dir" value="{{ sort_dir }}">
 
-        <button type="submit" class="btn btn-outline-primary btn-sm">{{ t("SEARCH_FILTER_BUTTON") }}</button>
+        <button type="submit" style="display:none"></button>
       </form>
 
       <div class="d-flex justify-content-between align-items-center mb-3">
@@ -172,7 +191,7 @@
       ></div>
 
       <div class="table-responsive table-dark-body">
-        <table class="table table-sm mb-0">
+        <table class="table table-sm mb-0" id="devicesTable">
           <thead class="table-dark-header text-white">
             <tr>
               <th>
@@ -216,9 +235,11 @@
             {% if dev.last_seen_scan == last_scan_id %}
               {% set status_text = "Online" %}
               {% set status_class = "status-badge-online" %}
+              {% set status_value = "online" %}
             {% else %}
               {% set status_text = "Offline" %}
               {% set status_class = "status-badge-offline" %}
+              {% set status_value = "offline" %}
             {% endif %}
 
             {% if highlight_new and dev.is_new %}
@@ -227,7 +248,15 @@
               {% set row_class = "" %}
             {% endif %}
 
-            <tr class="{{ row_class }}">
+            <tr
+              id="deviceRow{{ dev.id }}"
+              class="{{ row_class }}"
+              data-device-id="{{ dev.id }}"
+              data-mac="{{ dev.mac_address }}"
+              data-is-new="{{ '1' if dev.is_new else '0' }}"
+              data-status="{{ status_value }}"
+              data-search="{{ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '') | lower }}"
+            >
               <td class="align-middle">
                 {% if dev.ip_address and dev.ip_address != "-" %}
                   {% set ip_list = dev.ip_address.split(",") %}
@@ -275,19 +304,22 @@
 
               <td class="align-middle">
                 <span class="{{ status_class }}">{{ status_text }}</span>
-                {% if dev.is_new %}
-                  <span class="badge badge-warning ml-1">new</span>
-                {% endif %}
+                <span class="badge badge-warning ml-1 device-new-badge" style="{% if dev.is_new %}{% else %}display:none{% endif %}">new</span>
               </td>
 
               <td class="align-middle">
                 {% if current_user.is_admin %}
                   <div class="d-flex">
                     {% if dev.is_new %}
-                      <form method="POST" action="{{ url_for('mark_known', device_id=dev.id) }}" class="mr-1">
-                        <button type="submit" class="btn btn-warning btn-sm">{{ t("MARK_KNOWN") }}</button>
-                      </form>
+                      <button
+                        type="button"
+                        class="btn btn-warning btn-sm mr-1 js-mark-known"
+                        data-device-id="{{ dev.id }}"
+                      >
+                        {{ t("MARK_KNOWN") }}
+                      </button>
                     {% endif %}
+
                     <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
                       <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
                         {{ t("DELETE") }}
@@ -299,85 +331,95 @@
                 {% endif %}
               </td>
             </tr>
-
-            <div class="modal fade" id="aliasModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="aliasModalLabel{{ dev.id }}" aria-hidden="true">
-              <div class="modal-dialog" role="document">
-                <form method="POST" action="{{ url_for('update_alias') }}">
-                  <div class="modal-content">
-                    <div class="modal-header">
-                      <h5 class="modal-title text-dark" id="aliasModalLabel{{ dev.id }}">{{ t("ALIAS_MODAL_TITLE") }}</h5>
-                      <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-                    </div>
-                    <div class="modal-body">
-                      <input type="hidden" name="mac" value="{{ dev.mac_address }}">
-                      <div class="form-group">
-                        <label for="aliasInput{{ dev.id }}">{{ t("ALIAS_LABEL") }}</label>
-                        <input type="text" class="form-control text-dark" id="aliasInput{{ dev.id }}" name="alias"
-                               value="{{ dev.alias or '' }}" placeholder="{{ t('ALIAS_LABEL') }}">
-                      </div>
-                    </div>
-                    <div class="modal-footer">
-                      <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
-                      <button type="submit" class="btn btn-primary">{{ t("ALIAS_SAVE") }}</button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </div>
-
-            <div class="modal fade" id="manufacturerModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="manufacturerModalLabel{{ dev.id }}" aria-hidden="true">
-              <div class="modal-dialog" role="document">
-                <form method="POST" action="{{ url_for('update_manufacturer') }}">
-                  <div class="modal-content">
-                    <div class="modal-header">
-                      <h5 class="modal-title text-dark" id="manufacturerModalLabel{{ dev.id }}">{{ t("MANUFACTURER_MODAL_TITLE") }}</h5>
-                      <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-                    </div>
-                    <div class="modal-body">
-                      <input type="hidden" name="mac" value="{{ dev.mac_address }}">
-                      <div class="form-group">
-                        <label for="manufacturerInput{{ dev.id }}">{{ t("MANUFACTURER_LABEL") }}</label>
-                        <input type="text" class="form-control text-dark" id="manufacturerInput{{ dev.id }}" name="manufacturer"
-                               value="{{ dev.manufacturer or '' }}" placeholder="{{ t('MANUFACTURER_LABEL') }}">
-                      </div>
-                    </div>
-                    <div class="modal-footer">
-                      <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
-                      <button type="submit" class="btn btn-primary">{{ t("MANUFACTURER_SAVE") }}</button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </div>
-
-            {% if dev.ip_address and dev.ip_address != "-" %}
-            <div class="modal fade" id="ipModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="ipModalLabel{{ dev.id }}" aria-hidden="true">
-              <div class="modal-dialog" role="document">
-                <div class="modal-content">
-                  <div class="modal-header">
-                    <h5 class="modal-title text-dark" id="ipModalLabel{{ dev.id }}">IP addresses for {{ dev.alias or dev.mac_address }}</h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-                  </div>
-                  <div class="modal-body">
-                    {% set all_ips = dev.ip_address.split(",") %}
-                    <ul class="list-group">
-                      {% for addr in all_ips %}
-                        <li class="list-group-item ip-modal-list-item">{{ addr | trim }}</li>
-                      {% endfor %}
-                    </ul>
-                  </div>
-                  <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            {% endif %}
-
           {% endfor %}
+
+          <tr id="noResultsRow" style="display:none;">
+            <td colspan="8" class="text-center text-muted py-3">
+              {{ t("NO_MATCHING_DEVICES") }}
+            </td>
+          </tr>
+
           </tbody>
         </table>
       </div>
+
+      {% for dev in devices %}
+
+        <div class="modal fade" id="aliasModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="aliasModalLabel{{ dev.id }}" aria-hidden="true">
+          <div class="modal-dialog" role="document">
+            <form method="POST" action="{{ url_for('update_alias') }}">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title text-dark" id="aliasModalLabel{{ dev.id }}">{{ t("ALIAS_MODAL_TITLE") }}</h5>
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                </div>
+                <div class="modal-body">
+                  <input type="hidden" name="mac" value="{{ dev.mac_address }}">
+                  <div class="form-group">
+                    <label for="aliasInput{{ dev.id }}">{{ t("ALIAS_LABEL") }}</label>
+                    <input type="text" class="form-control" id="aliasInput{{ dev.id }}" name="alias"
+                           value="{{ dev.alias or '' }}" placeholder="{{ t('ALIAS_LABEL') }}">
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
+                  <button type="submit" class="btn btn-primary">{{ t("ALIAS_SAVE") }}</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="modal fade" id="manufacturerModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="manufacturerModalLabel{{ dev.id }}" aria-hidden="true">
+          <div class="modal-dialog" role="document">
+            <form method="POST" action="{{ url_for('update_manufacturer') }}">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title text-dark" id="manufacturerModalLabel{{ dev.id }}">{{ t("MANUFACTURER_MODAL_TITLE") }}</h5>
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                </div>
+                <div class="modal-body">
+                  <input type="hidden" name="mac" value="{{ dev.mac_address }}">
+                  <div class="form-group">
+                    <label for="manufacturerInput{{ dev.id }}">{{ t("MANUFACTURER_LABEL") }}</label>
+                    <input type="text" class="form-control" id="manufacturerInput{{ dev.id }}" name="manufacturer"
+                           value="{{ dev.manufacturer or '' }}" placeholder="{{ t('MANUFACTURER_LABEL') }}">
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
+                  <button type="submit" class="btn btn-primary">{{ t("MANUFACTURER_SAVE") }}</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {% if dev.ip_address and dev.ip_address != "-" %}
+        <div class="modal fade" id="ipModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="ipModalLabel{{ dev.id }}" aria-hidden="true">
+          <div class="modal-dialog" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title text-dark" id="ipModalLabel{{ dev.id }}">IP addresses for {{ dev.alias or dev.mac_address }}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+              </div>
+              <div class="modal-body">
+                {% set all_ips = dev.ip_address.split(",") %}
+                <ul class="list-group">
+                  {% for addr in all_ips %}
+                    <li class="list-group-item ip-modal-list-item">{{ addr | trim }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+      {% endfor %}
 
       <footer class="text-right">
         {{ t("INDEX_TITLE") }} - {{ t("VERSION_LABEL") }} {{ version }}
@@ -386,4 +428,10 @@
     </div>
   </div>
 </div>
+
+<meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
+<div id="mark-known-endpoints"
+     data-url="{{ url_for('mark_known', device_id=0) }}"
+     style="display:none"></div>
+
 {% endblock %}

@@ -273,9 +273,11 @@ TRANSLATIONS = {
         "CONFIG_SCAN_INTERVAL_HINT": "Ändras vid nästa skanning.",
         "ACTIVE_SCAN_INTERVAL_LABEL": "Aktivt intervall just nu:",
         "THEME_LABEL": "Tema",
-        "SAVE_THEME": "Spara tema",    
-
-  },
+        "SAVE_THEME": "Spara tema",
+        "SCAN_UPDATE_AVAILABLE": "Ny skanning klar – uppdatera listan",
+        "SCAN_UPDATE_BUTTON": "Uppdatera",
+        "NO_MATCHING_DEVICES": "Inga matchande enheter",
+    },
     "en": {
         "LANG_SV": "Swedish",
         "LANG_EN": "English",
@@ -423,6 +425,9 @@ TRANSLATIONS = {
         "ACTIVE_SCAN_INTERVAL_LABEL": "Active interval right now:",
         "THEME_LABEL": "Theme",
         "SAVE_THEME": "Save theme",
+        "SCAN_UPDATE_AVAILABLE": "New scan finished – update the list",
+        "SCAN_UPDATE_BUTTON": "Update",
+        "NO_MATCHING_DEVICES": "No matching devices",
     },
 }
 
@@ -459,6 +464,7 @@ def get_theme():
         theme = "default"
 
     return theme
+
 
 def t(key):
     lang = get_language()
@@ -961,14 +967,30 @@ def update_manufacturer():
 @login_required
 def mark_known(device_id):
     if not current_user.is_admin:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": False, "error": "admin_only"}), 403
         flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
         return redirect(url_for("index"))
 
     dev = Device.query.get(device_id)
-    if dev and dev.is_new:
+    if not dev:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        flash(t("FLASH_DEVICE_NOT_FOUND"), "warning")
+        return redirect(url_for("index"))
+
+    changed = False
+
+    if dev.is_new:
         dev.is_new = False
         db.session.commit()
-        flash(t("FLASH_DEVICE_MARKED_KNOWN"), "success")
+        changed = True
+
+        if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+            flash(t("FLASH_DEVICE_MARKED_KNOWN"), "success")
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "device_id": device_id, "changed": changed}), 200
 
     return redirect(url_for("index"))
 
@@ -1169,6 +1191,7 @@ def config_eggscan():
         theme=theme
     )
 
+
 @app.route("/update_theme", methods=["POST"])
 @login_required
 def update_theme():
@@ -1183,6 +1206,7 @@ def update_theme():
 
     set_setting("theme", theme)
     return redirect(url_for("config_eggscan"))
+
 
 # ---------------------------
 #       STARTUP

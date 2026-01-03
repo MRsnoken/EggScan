@@ -907,3 +907,61 @@ body.theme-cosmos .list-group-item.ip-modal-list-item{
   background: rgba(122,162,247,0.08) !important;
   border-color: rgba(122,162,247,0.18) !important;
 }
+
+
+/* =========================================================
+   AUTH PAGES (LOGIN / SETUP) - CRISP TEXT + CLEAN CONTRAST
+   ========================================================= */
+
+body.page-login,
+body.page-setup{
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body.page-login .card,
+body.page-setup .card{
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid rgba(0,0,0,0.10) !important;
+  filter: none !important;
+  transform: none !important;
+}
+
+body.page-login .card-header,
+body.page-setup .card-header{
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-bottom: 1px solid rgba(0,0,0,0.08) !important;
+}
+
+body.page-login .app-title,
+body.page-setup .auth-title{
+  color: #111827 !important;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+body.page-login label,
+body.page-setup label{
+  color: #111827 !important;
+  font-weight: 600;
+}
+
+body.page-login .text-muted,
+body.page-setup .text-muted{
+  color: #6b7280 !important;
+}
+
+body.page-login .form-control,
+body.page-setup .form-control{
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #d1d5db !important;
+}
+
+body.page-login .form-control::placeholder,
+body.page-setup .form-control::placeholder{
+  color: #9ca3af !important;
+}

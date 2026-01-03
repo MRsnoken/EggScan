@@ -1,4 +1,21 @@
 (function () {
+  console.log("[EggScan] app.js loaded");
+
+  function normalize(s) {
+    return (s || "").toString().trim().toLowerCase();
+  }
+
+  function debounce(fn, ms) {
+    var t = null;
+    return function () {
+      var args = arguments;
+      clearTimeout(t);
+      t = setTimeout(function () {
+        fn.apply(null, args);
+      }, ms);
+    };
+  }
+
   function ensureScanInfo(runningText) {
     var scanInfo = document.getElementById("scan-info");
     if (scanInfo) return;
@@ -16,13 +33,111 @@
     }
   }
 
-  function removeScanInfoAndReload(delayMs) {
+  function removeScanInfo() {
     var scanInfo = document.getElementById("scan-info");
     if (scanInfo) scanInfo.remove();
+  }
 
+  function hardReload(delayMs) {
     window.setTimeout(function () {
       window.location.reload();
     }, delayMs);
+  }
+
+  function applyLiveFilter() {
+    var searchInput = document.getElementById("liveSearch");
+    var filterSelect = document.getElementById("liveFilter");
+    var table = document.getElementById("devicesTable");
+    if (!searchInput || !filterSelect || !table) return;
+
+    var q = normalize(searchInput.value);
+    var mode = normalize(filterSelect.value);
+
+    var tbody = table.querySelector("tbody");
+    if (!tbody) return;
+
+    var rows = tbody.querySelectorAll("tr");
+    var visible = 0;
+
+    rows.forEach(function (row) {
+      if (row && row.id === "noResultsRow") return;
+
+      var rowStatus = normalize(row.getAttribute("data-status"));
+      var hay = normalize(row.getAttribute("data-search"));
+
+      var okStatus = true;
+      if (mode === "online") okStatus = (rowStatus === "online");
+      else if (mode === "offline") okStatus = (rowStatus === "offline");
+
+      var okSearch = !q || (hay && hay.indexOf(q) !== -1);
+
+      var show = okStatus && okSearch;
+      row.style.display = show ? "" : "none";
+      if (show) visible += 1;
+    });
+
+    var noResultsRow = document.getElementById("noResultsRow");
+    if (noResultsRow) {
+      noResultsRow.style.display = visible === 0 ? "" : "none";
+    }
+  }
+
+  var updatePending = false;
+
+  function getUpdateButton() {
+    return document.getElementById("scanUpdateBtn");
+  }
+
+  function showUpdateButton() {
+    var btn = getUpdateButton();
+    if (!btn) return;
+
+    var label = btn.getAttribute("data-label") || "Update";
+    var title = btn.getAttribute("data-title") || "New scan results available";
+
+    btn.textContent = label;
+    btn.title = title;
+    btn.style.display = "";
+  }
+
+  function hideUpdateButton() {
+    var btn = getUpdateButton();
+    if (!btn) return;
+    btn.style.display = "none";
+  }
+
+function isAnyModalOpen() {
+  return !!document.querySelector(".modal.show");
+}
+
+  function getSearchInput() {
+    return document.getElementById("liveSearch");
+  }
+
+  function hasSearchText() {
+    var s = getSearchInput();
+    if (!s) return false;
+    return s.value && s.value.trim().length > 0;
+  }
+
+  function shouldAutoReloadWhenScanDone() {
+    if (isAnyModalOpen()) return false;
+    if (hasSearchText()) return false;
+    return true;
+  }
+
+  function onScanDone(reloadDelay) {
+    removeScanInfo();
+
+    if (shouldAutoReloadWhenScanDone()) {
+      hideUpdateButton();
+      updatePending = false;
+      hardReload(reloadDelay);
+      return;
+    }
+
+    updatePending = true;
+    showUpdateButton();
   }
 
   function startScanStatusPolling() {
@@ -36,20 +151,25 @@
     var reloadDelay = parseInt(poller.getAttribute("data-reload-delay-ms") || "2000", 10);
     if (!Number.isFinite(reloadDelay) || reloadDelay < 0) reloadDelay = 2000;
 
+    var lastStatus = null;
+
     window.setInterval(function () {
       fetch(url)
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (!data || !data.status) return;
 
-          if (data.status === "running") {
+          var status = data.status;
+
+          if (status === "running") {
             ensureScanInfo(runningText);
-          } else if (data.status === "done") {
-            var scanInfo = document.getElementById("scan-info");
-            if (scanInfo) {
-              removeScanInfoAndReload(reloadDelay);
-            }
           }
+
+          if (lastStatus === "running" && status === "done") {
+            onScanDone(reloadDelay);
+          }
+
+          lastStatus = status;
         })
         .catch(function (err) {
           console.error("Error fetching scan status:", err);
@@ -57,9 +177,336 @@
     }, 2000);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", startScanStatusPolling);
-  } else {
+  function startLiveSearchFilter() {
+    var searchInput = document.getElementById("liveSearch");
+    var filterSelect = document.getElementById("liveFilter");
+    var table = document.getElementById("devicesTable");
+    if (!searchInput || !filterSelect || !table) return;
+
+    var debounced = debounce(function () {
+      applyLiveFilter();
+
+      if (updatePending && !isAnyModalOpen() && !hasSearchText()) {
+        hideUpdateButton();
+        updatePending = false;
+        hardReload(200);
+      }
+    }, 80);
+
+    searchInput.addEventListener("input", debounced);
+    filterSelect.addEventListener("change", function () {
+      applyLiveFilter();
+    });
+
+    applyLiveFilter();
+  }
+
+  function hookUpdateButtonClick() {
+    var btn = getUpdateButton();
+    if (!btn) return;
+
+    btn.addEventListener("click", function () {
+      hideUpdateButton();
+      updatePending = false;
+      hardReload(50);
+    });
+  }
+
+function hookModalCloseForPendingReload() {
+  function tryFinishPendingReload() {
+    if (!updatePending) return;
+    if (hasSearchText()) return;
+
+    
+    if (isAnyModalOpen()) return;
+
+    hideUpdateButton();
+    updatePending = false;
+    hardReload(150);
+  }
+
+  function scheduleTries() {
+   
+    window.setTimeout(tryFinishPendingReload, 0);
+    window.setTimeout(tryFinishPendingReload, 50);
+    window.setTimeout(tryFinishPendingReload, 150);
+    window.setTimeout(tryFinishPendingReload, 300);
+    window.setTimeout(tryFinishPendingReload, 600);
+  }
+
+
+  document.addEventListener("hide.bs.modal", function () {
+    scheduleTries();
+  }, true);
+
+  document.addEventListener("hidden.bs.modal", function () {
+    scheduleTries();
+  }, true);
+
+  
+  document.addEventListener("click", function (e) {
+    var dismissBtn =
+      (e.target && e.target.closest && e.target.closest('[data-dismiss="modal"], [data-bs-dismiss="modal"]')) || null;
+
+    if (dismissBtn) {
+      scheduleTries();
+    }
+  }, true);
+
+
+  document.addEventListener("mousedown", function (e) {
+    var modalEl = e.target && e.target.closest ? e.target.closest(".modal") : null;
+    if (!modalEl) return;
+
+
+    if (e.target === modalEl) {
+      scheduleTries();
+    }
+  }, true);
+
+ 
+  document.addEventListener("keydown", function (e) {
+    var key = e.key || e.keyCode;
+    if (key === "Escape" || key === "Esc" || key === 27) {
+      scheduleTries();
+    }
+  }, true);
+}
+
+  function getMarkKnownBaseUrl() {
+    var el = document.getElementById("mark-known-endpoints");
+    if (!el) return null;
+    var url = (el.getAttribute("data-url") || "").trim();
+    if (!url) return null;
+    return url;
+  }
+
+  function buildMarkKnownUrl(deviceId) {
+    var base = getMarkKnownBaseUrl();
+    if (!base) return null;
+
+    var idStr = String(deviceId);
+
+    if (base.indexOf("/0") !== -1) {
+      return base.replace("/0", "/" + idStr);
+    }
+
+    if (base.match(/\/\d+$/)) {
+      return base.replace(/\/\d+$/, "/" + idStr);
+    }
+
+    if (base.endsWith("/")) return base + idStr;
+    return base + "/" + idStr;
+  }
+
+  function findRowByDeviceId(deviceId) {
+    var table = document.getElementById("devicesTable");
+    if (!table) return null;
+    return table.querySelector('tr[data-device-id="' + String(deviceId) + '"]');
+  }
+
+  function parseFirstInt(text) {
+    if (!text) return null;
+    var m = String(text).match(/-?\d+/);
+    if (!m) return null;
+    var n = parseInt(m[0], 10);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function decrementIntInElement(el) {
+    if (!el) return false;
+    var current = parseFirstInt(el.textContent);
+    if (current === null) return false;
+
+    var next = current - 1;
+    if (next < 0) next = 0;
+
+    el.textContent = el.textContent.replace(/-?\d+/, String(next));
+    return true;
+  }
+
+  function decrementNewCountersEverywhere() {
+    var did = false;
+
+       var ids = [
+      "newDevicesCount",
+      "statusbarNewCount",
+      "statsNewDevicesCount",
+      "newCount"
+    ];
+
+    ids.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.children.length === 0) {
+        did = decrementIntInElement(el) || did;
+      }
+    });
+
+    if (did) return true;
+
+   
+    function isLeaf(el) {
+      return el && el.nodeType === 1 && el.children && el.children.length === 0;
+    }
+
+    function isNumberOnly(el) {
+      if (!isLeaf(el)) return false;
+      var txt = (el.textContent || "").trim();
+      return /^[0-9]+$/.test(txt);
+    }
+
+    function findNearestNumberForLabel(labelEl) {
+      if (!labelEl) return null;
+
+      var p = labelEl.parentElement;
+      if (p) {
+        var all = p.querySelectorAll("*");
+        for (var i = 0; i < all.length; i++) {
+          var c = all[i];
+          if (c === labelEl) continue;
+          if (isNumberOnly(c)) return c;
+        }
+      }
+
+      var sib = labelEl.nextElementSibling;
+      if (isNumberOnly(sib)) return sib;
+
+      if (p && p.nextElementSibling && isNumberOnly(p.nextElementSibling)) {
+        return p.nextElementSibling;
+      }
+
+      return null;
+    }
+
+    var candidates = document.querySelectorAll("span, strong, small, b, div, td, th, p, h1, h2, h3, h4, h5, h6");
+    var labels = [];
+
+    candidates.forEach(function (el) {
+      if (!isLeaf(el)) return;
+      var txt = normalize(el.textContent);
+      if (
+        txt === "nya enheter" || txt === "nya enheter:" ||
+        txt === "new devices" || txt === "new devices:"
+      ) {
+        labels.push(el);
+      }
+    });
+
+    var updatedAny = false;
+
+    for (var j = 0; j < labels.length; j++) {
+      var labelEl = labels[j];
+      var numEl = findNearestNumberForLabel(labelEl);
+      if (numEl) {
+        updatedAny = decrementIntInElement(numEl) || updatedAny;
+      }
+    }
+
+    return updatedAny;
+  }
+
+  function removeBlinkClasses(row) {
+    if (!row || !row.classList) return;
+
+    row.classList.remove("blink");
+    row.classList.remove("new-blink");
+    row.classList.remove("blink-new");
+    row.classList.remove("device-new");
+    row.classList.remove("is-new");
+
+    Array.from(row.classList).forEach(function (c) {
+      if (String(c).toLowerCase().indexOf("blink") !== -1) {
+        row.classList.remove(c);
+      }
+    });
+  }
+
+  function removeNewUiFromRow(row) {
+    if (!row) return;
+
+    row.setAttribute("data-is-new", "0");
+    removeBlinkClasses(row);
+
+    var badge = row.querySelector(".device-new-badge");
+    if (badge) badge.style.display = "none";
+
+    var btn = row.querySelector(".js-mark-known");
+    if (btn) btn.remove();
+  }
+
+  function hookMarkKnownAjax() {
+    function stopAll(e) {
+      if (!e) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+    }
+
+    document.addEventListener("submit", function (e) {
+      var submitter = e.submitter || null;
+      if (submitter && submitter.classList && submitter.classList.contains("js-mark-known")) {
+        stopAll(e);
+      }
+    }, true);
+
+    document.addEventListener("click", function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest(".js-mark-known") : null;
+      if (!btn) return;
+
+      stopAll(e);
+
+      var deviceId = btn.getAttribute("data-device-id");
+      if (!deviceId) return;
+
+      var url = buildMarkKnownUrl(deviceId);
+      if (!url) {
+        console.error("No mark-known URL configured (missing #mark-known-endpoints data-url).");
+        return;
+      }
+
+      btn.disabled = true;
+
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest"
+        }
+      })
+        .then(function (res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          if (!data || data.ok !== true) {
+            btn.disabled = false;
+            return;
+          }
+
+          var row = findRowByDeviceId(deviceId);
+          removeNewUiFromRow(row);
+
+          if (data.changed === true) {
+            decrementNewCountersEverywhere();
+          }
+        })
+        .catch(function (err) {
+          console.error("Mark known failed:", err);
+          btn.disabled = false;
+        });
+    }, true);
+  }
+
+  function init() {
     startScanStatusPolling();
+    startLiveSearchFilter();
+    hookUpdateButtonClick();
+    hookModalCloseForPendingReload();
+    hookMarkKnownAjax();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
   }
 })();
