@@ -1,5 +1,8 @@
 # EggScan
 
+<img width="1890" height="1162" alt="Mainside" src="https://github.com/user-attachments/assets/f4b02944-aae2-4a4f-937a-42b8497d3fca" />
+
+<br><br>
 ![Latest release](https://img.shields.io/github/v/release/MRsnoken/EggScan?label=version)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
@@ -65,27 +68,40 @@ EggScan is **not** intended for:
 
 <br><br>
 
-<strong>Dashboard</strong>
+<strong>Settings </strong>
 
-<img width="1680" height="1010" alt="DeviceDashboard" src="https://github.com/user-attachments/assets/b13ce9d3-a3ee-4f92-b7ea-f0069c45d093" />
+<img width="1891" height="1152" alt="Settings" src="https://github.com/user-attachments/assets/aeb89dae-9ea4-490a-9709-abd133279b74" />
 
-<br><br>
-
-<strong>Update Alias</strong>
-
-<img width="492" height="247" alt="Alias" src="https://github.com/user-attachments/assets/8028fe28-12fb-4967-917d-9aa98d8de705" />
 
 <br><br>
 
-<strong>Network</strong>
+<strong> Manage Users </strong>
 
-<img width="1112" height="753" alt="NetworkSettings" src="https://github.com/user-attachments/assets/c423cf77-8305-48bb-b6ed-184981f301b5" />
+<img width="1681" height="613" alt="Manage user" src="https://github.com/user-attachments/assets/5a0b5e94-9f02-44a6-a2a4-bc886acf5e5c" />
+
+
+
 
 <br><br>
 
-<strong>Manage Users</strong>
+<strong>Password </strong>
 
-<img width="691" height="277" alt="Manage Users" src="https://github.com/user-attachments/assets/0ec37e1b-476c-46c0-b599-f1cf816b61e2" />
+<img width="1884" height="539" alt="Password" src="https://github.com/user-attachments/assets/06330a44-c7a8-4229-b955-84f78e882eb7" />
+
+
+<br><br>
+
+<strong> Darkmode</strong>
+
+<img width="1874" height="1047" alt="Darkmode" src="https://github.com/user-attachments/assets/6a4e5664-c876-4c31-8464-dcddfe7f9193" />
+<br><br>
+<strong> Lightmode </strong>
+
+<img width="1886" height="1048" alt="Lightmode" src="https://github.com/user-attachments/assets/f214f692-af4d-4636-b442-35fed858317c" />
+<br><br>
+<strong> Cosmos </strong>
+<img width="1884" height="1066" alt="Cosmosmode" src="https://github.com/user-attachments/assets/d17eb776-612a-4714-9b41-b006d3bbac8f" />
+
 
 </details>
 
