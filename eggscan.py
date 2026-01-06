@@ -24,6 +24,8 @@ from flask_login import (
 )
 from flask_bcrypt import Bcrypt
 import nmap
+from sqlalchemy import text
+from sqlalchemy.schema import UniqueConstraint
 
 # ---------------------------
 #   PATHS, VERSION, SECRET
@@ -106,15 +108,53 @@ class Device(db.Model):
     last_seen_scan = db.Column(db.String(36), nullable=True)
     last_seen_at = db.Column(db.DateTime, nullable=True)
     is_new = db.Column(db.Boolean, default=False)
+    last_subnet_id = db.Column(db.Integer, nullable=True)
 
 
 class SubNetwork(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     cidr = db.Column(db.String(50), unique=True, nullable=False)
+    label = db.Column(db.String(80), nullable=True)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
 
 
-with app.app_context():
-    db.create_all()
+class DeviceSubnetSeen(db.Model):
+    """
+    Loggar vilka subnät en device (Device-id) faktiskt sågs i under en specifik scan_id.
+    Detta gör grouped-läget korrekt för multi-subnet samtidigt.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.String(36), nullable=False, index=True)
+    device_id = db.Column(db.Integer, nullable=False, index=True)
+    subnet_id = db.Column(db.Integer, nullable=True, index=True)  # kan vara None (t.ex. IPv6 neighbor)
+    seen_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("scan_id", "device_id", "subnet_id", name="uq_seen_scan_device_subnet"),
+    )
+
+
+def ensure_db_schema():
+    with app.app_context():
+        db.create_all()
+
+        def has_column(table_name, col_name):
+            rows = db.session.execute(text(f"PRAGMA table_info({table_name});")).fetchall()
+            return any(r[1] == col_name for r in rows)
+
+        if not has_column("sub_network", "label"):
+            db.session.execute(text("ALTER TABLE sub_network ADD COLUMN label VARCHAR(80);"))
+
+        if not has_column("sub_network", "sort_order"):
+            db.session.execute(text("ALTER TABLE sub_network ADD COLUMN sort_order INTEGER DEFAULT 0;"))
+
+        if not has_column("device", "last_subnet_id"):
+            db.session.execute(text("ALTER TABLE device ADD COLUMN last_subnet_id INTEGER;"))
+
+        db.session.commit()
+
+
+ensure_db_schema()
 
 
 @login_manager.user_loader
@@ -277,6 +317,16 @@ TRANSLATIONS = {
         "SCAN_UPDATE_AVAILABLE": "Ny skanning klar – uppdatera listan",
         "SCAN_UPDATE_BUTTON": "Uppdatera",
         "NO_MATCHING_DEVICES": "Inga matchande enheter",
+        "TABLE_SUBNET": "Subnät",
+
+        "CONFIG_SUBNET_LABEL_COL": "Namn (valfritt)",
+        "CONFIG_SUBNET_LABEL_PLACEHOLDER": "t.ex. Hem, Gäst, Lab",
+        "CONFIG_SUBNET_VIEW_MODE": "Visningsläge för subnät",
+        "CONFIG_SUBNET_VIEW_MODE_COLUMN": "Kolumn i tabellen",
+        "CONFIG_SUBNET_VIEW_MODE_GROUPED": "Gruppera per subnät",
+
+        "SUBNET_GROUP_OTHERS": "Övriga",
+        "CONFIG_SUBNET_VIEW_MODE_HINT": "Subnät visas bara om minst ett subnät har ett namn.",
     },
     "en": {
         "LANG_SV": "Swedish",
@@ -428,6 +478,16 @@ TRANSLATIONS = {
         "SCAN_UPDATE_AVAILABLE": "New scan finished – update the list",
         "SCAN_UPDATE_BUTTON": "Update",
         "NO_MATCHING_DEVICES": "No matching devices",
+        "TABLE_SUBNET": "Subnet",
+
+        "CONFIG_SUBNET_LABEL_COL": "Name (optional)",
+        "CONFIG_SUBNET_LABEL_PLACEHOLDER": "e.g. Home, Guest, Lab",
+        "CONFIG_SUBNET_VIEW_MODE": "Subnet display mode",
+        "CONFIG_SUBNET_VIEW_MODE_COLUMN": "Column in table",
+        "CONFIG_SUBNET_VIEW_MODE_GROUPED": "Group by subnet",
+
+        "SUBNET_GROUP_OTHERS": "Others",
+        "CONFIG_SUBNET_VIEW_MODE_HINT": "Subnets are only shown if at least one subnet has a name.",
     },
 }
 
@@ -466,17 +526,24 @@ def get_theme():
     return theme
 
 
+def get_subnet_view_mode():
+    mode = get_setting("subnet_view_mode", "column").strip().lower()
+    if mode not in ("column", "grouped"):
+        mode = "column"
+    return mode
+
+
 def t(key):
     lang = get_language()
     return TRANSLATIONS.get(lang, TRANSLATIONS["sv"]).get(key, key)
 
 
 def tf(key, **kwargs):
-    text = t(key)
+    text_value = t(key)
     try:
-        return text.format(**kwargs)
+        return text_value.format(**kwargs)
     except Exception:
-        return text
+        return text_value
 
 
 # ---------------------------
@@ -539,7 +606,7 @@ def discover_ipv6_neighbors():
 
 
 def nmap_scan_and_save():
-    subnets = SubNetwork.query.all()
+    subnets = SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all()
     if not subnets:
         set_setting("scan_status", "done")
         return
@@ -551,7 +618,15 @@ def nmap_scan_and_save():
     nm = nmap.PortScanner()
     existing_devices = {d.mac_address.lower(): d for d in Device.query.all()}
     ipv6_enabled = (get_setting("ipv6_enabled", "false") == "true")
+
     scan_ips_per_mac = {}
+    seen_pairs = set()  # (device_id, subnet_id) för current_scan_id
+
+    try:
+        DeviceSubnetSeen.query.filter_by(scan_id=current_scan_id).delete()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
     for sn in subnets:
         cidr = sn.cidr.strip()
@@ -580,16 +655,30 @@ def nmap_scan_and_save():
                     dev.last_seen_scan = current_scan_id
                     dev.last_seen_at = datetime.datetime.now()
                 else:
-                    new_dev = Device(
+                    dev = Device(
                         ip_address=host,
                         mac_address=mac,
                         manufacturer=manufacturer,
                         last_seen_scan=current_scan_id,
                         last_seen_at=datetime.datetime.now(),
-                        is_new=True
+                        is_new=True,
+                        last_subnet_id=None
                     )
-                    db.session.add(new_dev)
-                    existing_devices[mac_lower] = new_dev
+                    db.session.add(dev)
+                    db.session.flush()
+                    existing_devices[mac_lower] = dev
+
+                dev.last_subnet_id = sn.id
+
+                pair = (dev.id, sn.id)
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    db.session.add(DeviceSubnetSeen(
+                        scan_id=current_scan_id,
+                        device_id=dev.id,
+                        subnet_id=sn.id,
+                        seen_at=datetime.datetime.utcnow()
+                    ))
 
         except Exception as e:
             print(f"Scan error for {cidr}: {e}")
@@ -611,16 +700,28 @@ def nmap_scan_and_save():
                 dev.last_seen_scan = current_scan_id
                 dev.last_seen_at = datetime.datetime.now()
             else:
-                new_dev = Device(
+                dev = Device(
                     ip_address=",".join(ipv6_list),
                     mac_address=mac_lower,
                     manufacturer=None,
                     last_seen_scan=current_scan_id,
                     last_seen_at=datetime.datetime.now(),
-                    is_new=True
+                    is_new=True,
+                    last_subnet_id=None
                 )
-                db.session.add(new_dev)
-                existing_devices[mac_lower] = new_dev
+                db.session.add(dev)
+                db.session.flush()
+                existing_devices[mac_lower] = dev
+
+            pair = (dev.id, None)
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                db.session.add(DeviceSubnetSeen(
+                    scan_id=current_scan_id,
+                    device_id=dev.id,
+                    subnet_id=None,
+                    seen_at=datetime.datetime.utcnow()
+                ))
 
         db.session.commit()
 
@@ -632,7 +733,6 @@ def nmap_scan_and_save():
 
                 ipv4_addrs = []
                 ipv6_addrs = []
-
                 for addr in addr_list:
                     try:
                         ip_obj = ipaddress.ip_address(addr)
@@ -830,6 +930,7 @@ def index():
             )
 
     devices = q.all()
+    device_by_id = {d.id: d for d in devices}
 
     total_devices = len(devices)
     online_devices = 0
@@ -843,31 +944,118 @@ def index():
 
     offline_devices = total_devices - online_devices
 
+    subnets = SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all()
+    subnet_map = {sn.id: (sn.label.strip() if sn.label and sn.label.strip() else "") for sn in subnets}
+
+    has_named_subnets = any(bool(sn.label and sn.label.strip()) for sn in subnets)
+    subnet_view_mode = get_subnet_view_mode()
+
     def none_str(x):
         return x if x else ""
 
-    if sort_field == "ip":
-        def ip_key(dev):
-            if dev.ip_address == "-" or not dev.ip_address:
-                return (999, ipaddress.ip_address("255.255.255.255"))
-            first_ip = dev.ip_address.split(",")[0].strip()
-            try:
-                ip_obj = ipaddress.ip_address(first_ip)
-                return (ip_obj.version, ip_obj)
-            except Exception:
-                return (999, ipaddress.ip_address("255.255.255.255"))
-        devices.sort(key=ip_key, reverse=(sort_dir == "desc"))
+    def ip_sort_tuple(dev: Device):
+        if dev.ip_address == "-" or not dev.ip_address:
+            return (999, ipaddress.ip_address("255.255.255.255"))
+        first_ip = dev.ip_address.split(",")[0].strip()
+        try:
+            ip_obj = ipaddress.ip_address(first_ip)
+            return (ip_obj.version, ip_obj)
+        except Exception:
+            return (999, ipaddress.ip_address("255.255.255.255"))
 
-    elif sort_field == "mac":
-        devices.sort(key=lambda d: none_str(d.mac_address).lower(), reverse=(sort_dir == "desc"))
-    elif sort_field == "alias":
-        devices.sort(key=lambda d: none_str(d.alias).lower(), reverse=(sort_dir == "desc"))
-    elif sort_field == "manufacturer":
-        devices.sort(key=lambda d: none_str(d.manufacturer).lower(), reverse=(sort_dir == "desc"))
-    elif sort_field == "updated":
-        def updated_key(d):
-            return d.updated_at if d.updated_at else datetime.datetime(1970, 1, 1)
-        devices.sort(key=updated_key, reverse=(sort_dir == "desc"))
+    def updated_key(d):
+        return d.updated_at if d.updated_at else datetime.datetime(1970, 1, 1)
+
+    def device_key_for_sort(d: Device):
+        if sort_field == "ip":
+            return ip_sort_tuple(d)
+        if sort_field == "mac":
+            return none_str(d.mac_address).lower()
+        if sort_field == "alias":
+            return none_str(d.alias).lower()
+        if sort_field == "manufacturer":
+            return none_str(d.manufacturer).lower()
+        if sort_field == "updated":
+            return updated_key(d)
+        return ip_sort_tuple(d)
+
+    is_grouped_active = (
+        has_named_subnets
+        and subnet_view_mode == "grouped"
+    )
+
+    device_groups = []
+    if is_grouped_active and last_scan_id:
+        seen_rows = DeviceSubnetSeen.query.filter_by(scan_id=last_scan_id).all()
+        seen_device_ids_per_subnet = {}
+        all_grouped_device_ids = set()
+
+        for r in seen_rows:
+            if r.subnet_id is None:
+                continue
+            lbl = subnet_map.get(r.subnet_id, "").strip()
+            if not lbl:
+                continue
+            seen_device_ids_per_subnet.setdefault(r.subnet_id, set()).add(r.device_id)
+
+        reverse_rows = (sort_dir == "desc")
+
+        for sn in subnets:
+            lbl = (sn.label.strip() if sn.label and sn.label.strip() else "")
+            if not lbl:
+                continue
+            dev_ids = seen_device_ids_per_subnet.get(sn.id, set())
+            if not dev_ids:
+                continue
+
+            items = []
+            for did in dev_ids:
+                d = device_by_id.get(did)
+                if d:
+                    items.append(d)
+
+            items.sort(key=device_key_for_sort, reverse=reverse_rows)
+            if items:
+                device_groups.append({"title": lbl, "devices": items})
+                all_grouped_device_ids |= set([d.id for d in items])
+
+        others = []
+        for d in devices:
+            if d.id not in all_grouped_device_ids:
+                others.append(d)
+
+        if others:
+            others.sort(key=device_key_for_sort, reverse=reverse_rows)
+            device_groups.append({"title": t("SUBNET_GROUP_OTHERS"), "devices": others})
+
+    if sort_field == "subnet":
+        def subnet_label_for_device(dev: Device) -> str:
+            if dev.last_subnet_id and dev.last_subnet_id in subnet_map:
+                return subnet_map[dev.last_subnet_id] or ""
+            return ""
+
+        devices.sort(
+            key=lambda d: (subnet_label_for_device(d).lower(), ip_sort_tuple(d)),
+            reverse=(sort_dir == "desc")
+        )
+        devices.sort(
+            key=lambda d: 1 if subnet_label_for_device(d).strip() == "" else 0
+        )
+
+    elif is_grouped_active:
+        pass
+
+    else:
+        if sort_field == "ip":
+            devices.sort(key=ip_sort_tuple, reverse=(sort_dir == "desc"))
+        elif sort_field == "mac":
+            devices.sort(key=lambda d: none_str(d.mac_address).lower(), reverse=(sort_dir == "desc"))
+        elif sort_field == "alias":
+            devices.sort(key=lambda d: none_str(d.alias).lower(), reverse=(sort_dir == "desc"))
+        elif sort_field == "manufacturer":
+            devices.sort(key=lambda d: none_str(d.manufacturer).lower(), reverse=(sort_dir == "desc"))
+        elif sort_field == "updated":
+            devices.sort(key=updated_key, reverse=(sort_dir == "desc"))
 
     lang = get_language()
     theme = get_theme()
@@ -880,6 +1068,8 @@ def index():
     return render_template(
         "index.html",
         devices=devices,
+        device_groups=device_groups,
+        is_grouped_active=is_grouped_active,
         current_user=current_user,
         scan_status=scan_status,
         last_scan_id=last_scan_id,
@@ -896,6 +1086,9 @@ def index():
         last_scan_time=last_scan_time,
         configured_scan_interval=configured_scan_interval,
         active_scan_interval=active_scan_interval,
+        subnet_map=subnet_map,
+        has_named_subnets=has_named_subnets,
+        subnet_view_mode=subnet_view_mode,
         t=t,
         lang=lang,
         version=APP_VERSION,
@@ -1152,23 +1345,39 @@ def config_eggscan():
             highlight_new = (request.form.get("highlight_new") == "on")
             ipv6_utils = request.form.get("ipv6_utils", "").strip()
             language = request.form.get("language", "").strip()
+            view_mode = request.form.get("subnet_view_mode", "column").strip().lower()
 
             if not scan_interval.isdigit() or int(scan_interval) <= 0:
                 flash(t("FLASH_SCAN_INTERVAL_INVALID"), "danger")
                 return redirect(url_for("config_eggscan"))
 
+            if view_mode not in ("column", "grouped"):
+                view_mode = "column"
+
             set_setting("ipv6_enabled", "true" if ipv6 else "false")
             set_setting("scan_interval", scan_interval)
             set_setting("highlight_new", "true" if highlight_new else "false")
             set_setting("ipv6_utils", ipv6_utils)
+            set_setting("subnet_view_mode", view_mode)
+
             if language in ("sv", "en"):
                 set_setting("language", language)
+
+            subnets = SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all()
+            for sn in subnets:
+                key = f"label_{sn.id}"
+                new_label = request.form.get(key, "")
+                if new_label is None:
+                    continue
+                new_label = new_label.strip()
+                sn.label = new_label if new_label else None
+            db.session.commit()
 
             flash(t("FLASH_SETTINGS_UPDATED"), "success")
 
         return redirect(url_for("config_eggscan"))
 
-    subnets = SubNetwork.query.all()
+    subnets = SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all()
     ipv6_enable = (get_setting("ipv6_enabled", "false") == "true")
     scan_interval = get_setting("scan_interval", "5")
     highlight_new = (get_setting("highlight_new", "false") == "true")
@@ -1176,6 +1385,7 @@ def config_eggscan():
     lang = get_language()
     active_scan_interval = get_setting("scan_interval_active", scan_interval)
     theme = get_theme()
+    subnet_view_mode = get_subnet_view_mode()
 
     return render_template(
         "config.html",
@@ -1185,6 +1395,7 @@ def config_eggscan():
         highlight_new=highlight_new,
         ipv6_utils=ipv6_utils,
         active_scan_interval=active_scan_interval,
+        subnet_view_mode=subnet_view_mode,
         t=t,
         lang=lang,
         version=APP_VERSION,
@@ -1206,6 +1417,26 @@ def update_theme():
 
     set_setting("theme", theme)
     return redirect(url_for("config_eggscan"))
+
+@app.route("/update_subnet_order", methods=["POST"])
+@login_required
+def update_subnet_order():
+    if not current_user.is_admin:
+        return jsonify({"ok": False}), 403
+
+    data = request.get_json()
+    if not data or "order" not in data:
+        return jsonify({"ok": False}), 400
+
+    order = data["order"]
+
+    for idx, subnet_id in enumerate(order):
+        sn = SubNetwork.query.get(int(subnet_id))
+        if sn:
+            sn.sort_order = idx
+
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 # ---------------------------

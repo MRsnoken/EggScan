@@ -22,6 +22,11 @@ SECRET_PATH="$INSTALL_DIR/secret_key.txt"
 
 APP_MAIN="$INSTALL_DIR/eggscan.py"
 
+IS_UPGRADE=0
+if [ -f "$DB_PATH" ] || [ -f "$SECRET_PATH" ] || [ -f "$APP_MAIN" ]; then
+  IS_UPGRADE=1
+fi
+
 echo "Installing from directory: $SCRIPT_DIR"
 echo "Install directory: $INSTALL_DIR"
 echo "Virtualenv: $VENV_DIR"
@@ -133,20 +138,33 @@ if [ ! -f "$SCRIPT_DIR/eggscan.py" ]; then
   exit 1
 fi
 
-BACKUP_DIR="$INSTALL_DIR/_backup_$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$BACKUP_DIR"
+BACKUP_DIR=""
+if [ "$IS_UPGRADE" -eq 1 ]; then
+  BACKUP_DIR="$INSTALL_DIR/_backup_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$BACKUP_DIR"
+fi
 
-if [ -f "$APP_MAIN" ]; then
+if [ -n "$BACKUP_DIR" ] && [ -f "$APP_MAIN" ]; then
   echo "Backing up existing eggscan.py to $BACKUP_DIR/"
   cp -a "$APP_MAIN" "$BACKUP_DIR/eggscan.py"
 fi
 
-if [ -d "$INSTALL_DIR/templates" ]; then
+if [ -n "$BACKUP_DIR" ] && [ -f "$DB_PATH" ]; then
+  echo "Backing up existing eggscan.db to $BACKUP_DIR/"
+  cp -a "$DB_PATH" "$BACKUP_DIR/eggscan.db"
+fi
+
+if [ -n "$BACKUP_DIR" ] && [ -f "$SECRET_PATH" ]; then
+  echo "Backing up existing secret_key.txt to $BACKUP_DIR/"
+  cp -a "$SECRET_PATH" "$BACKUP_DIR/secret_key.txt"
+fi
+
+if [ -n "$BACKUP_DIR" ] && [ -d "$INSTALL_DIR/templates" ]; then
   echo "Backing up existing templates/ to $BACKUP_DIR/"
   cp -a "$INSTALL_DIR/templates" "$BACKUP_DIR/" || true
 fi
 
-if [ -d "$INSTALL_DIR/static" ]; then
+if [ -n "$BACKUP_DIR" ] && [ -d "$INSTALL_DIR/static" ]; then
   echo "Backing up existing static/ to $BACKUP_DIR/"
   cp -a "$INSTALL_DIR/static" "$BACKUP_DIR/" || true
 fi
@@ -188,6 +206,8 @@ if [ -f "$SCRIPT_DIR/LICENSE" ]; then
 fi
 
 # IMPORTANT: do NOT overwrite DB or secret key (upgrade-safe)
+# - secret_key.txt is normally created by EggScan on first run (recommended)
+# - this block only copies if you ship one AND it's a fresh install
 if [ -f "$SCRIPT_DIR/secret_key.txt" ]; then
   if [ -f "$SECRET_PATH" ]; then
     echo "Keeping existing secret_key.txt (not overwriting)."
@@ -202,34 +222,16 @@ echo "Application files copied."
 echo
 
 # ------------------------------------------------------------------------------
-# 6. Database migration (keep your existing safety migration)
+# 6. Database schema bootstrap (run app schema logic once during install/upgrade)
 # ------------------------------------------------------------------------------
 
-echo "Checking for existing EggScan database for migration..."
-
-if [ -f "$DB_PATH" ]; then
-  echo "Existing database found at $DB_PATH"
-
-  DEVICE_TABLE_EXISTS=$(sqlite3 "$DB_PATH" ".tables device" | grep -c '^device$' || true)
-
-  if [ "$DEVICE_TABLE_EXISTS" -eq 1 ]; then
-    echo "device table exists, checking for last_seen_at column..."
-
-    HAS_LAST_SEEN_COL=$(sqlite3 "$DB_PATH" "PRAGMA table_info(device);" | awk -F'|' '{print $2}' | grep -c '^last_seen_at$' || true)
-
-    if [ "$HAS_LAST_SEEN_COL" -eq 0 ]; then
-      echo "last_seen_at column is missing, applying migration..."
-      sqlite3 "$DB_PATH" "ALTER TABLE device ADD COLUMN last_seen_at DATETIME;"
-      echo "Migration done: last_seen_at column added to device table."
-    else
-      echo "Migration skipped: last_seen_at column already exists."
-    fi
-  else
-    echo "device table does not exist yet in $DB_PATH, skipping migration."
-  fi
-else
-  echo "No existing database found at $DB_PATH (fresh install), skipping DB migration."
-fi
+echo "Running DB schema bootstrap (ensure_db_schema in eggscan.py)..."
+"$PYTHON_BIN" - << EOF
+import sys
+sys.path.insert(0, "${INSTALL_DIR}")
+import eggscan  # triggers ensure_db_schema() at import time
+print(" DB schema bootstrap OK")
+EOF
 
 echo
 
@@ -275,5 +277,16 @@ echo
 echo " EggScan installation finished."
 echo " Open the web UI on port 5000 of this machine."
 echo " Virtualenv: $VENV_DIR"
-echo " DB kept at: $DB_PATH (never overwritten)"
-echo " Secret key kept at: $SECRET_PATH (never overwritten)"
+
+if [ "$IS_UPGRADE" -eq 1 ]; then
+  echo " Upgrade detected."
+  echo " DB kept at: $DB_PATH (never overwritten)"
+  echo " Secret key kept at: $SECRET_PATH (never overwritten)"
+  if [ -n "$BACKUP_DIR" ]; then
+    echo " Backups stored in: $BACKUP_DIR"
+  fi
+else
+  echo " Fresh install detected."
+  echo " DB path: $DB_PATH"
+  echo " Secret key path: $SECRET_PATH"
+fi

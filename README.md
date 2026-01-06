@@ -126,6 +126,13 @@ EggScan is **not** intended for:
 - Runs as a systemd service
 - Versioning via `version.json`
 - No cloud backend – all scan data stays on your LAN
+- Optional subnet labeling (e.g. Home, Guest, Lab)
+- Subnet-aware device display:
+  - Subnet shown as a column in the device table, or
+  - Devices grouped into subnet sections
+- Accurate handling of devices present in multiple subnets
+- Subnet display reflects actual scan results (no guessed or historical placement)
+- Upgrade-safe installer with automatic database schema checks
 
 </details>
 

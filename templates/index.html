@@ -190,154 +190,306 @@
         data-reload-delay-ms="2000"
       ></div>
 
+      {% set show_subnet = has_named_subnets %}
+      {% set grouped = (is_grouped_active and device_groups) %}
+
       <div class="table-responsive table-dark-body">
         <table class="table table-sm mb-0" id="devicesTable">
           <thead class="table-dark-header text-white">
             <tr>
+              {% if show_subnet and not grouped %}
+                <th>
+                  <a href="?sort=subnet&dir={% if sort_field=='subnet' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{ filter_mode }}&search={{ search_q }}">
+                    {{ t("TABLE_SUBNET") }}
+                    {% if sort_field == 'subnet' %}{% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}{% else %} ↕{% endif %}
+                  </a>
+                </th>
+              {% endif %}
+
               <th>
                 <a href="?sort=ip&dir={% if sort_field=='ip' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{ filter_mode }}&search={{ search_q }}">
                   {{ t("TABLE_IP") }}
                   {% if sort_field == 'ip' %}{% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}{% else %} ↕{% endif %}
                 </a>
               </th>
+
               <th>
                 <a href="?sort=mac&dir={% if sort_field=='mac' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{ filter_mode }}&search={{ search_q }}">
                   {{ t("TABLE_MAC") }}
                   {% if sort_field == 'mac' %}{% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}{% else %} ↕{% endif %}
                 </a>
               </th>
+
               <th>
                 <a href="?sort=alias&dir={% if sort_field=='alias' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{ filter_mode }}&search={{ search_q }}">
                   {{ t("TABLE_ALIAS") }}
                   {% if sort_field == 'alias' %}{% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}{% else %} ↕{% endif %}
                 </a>
               </th>
+
               <th>{{ t("TABLE_PING") }}</th>
+
               <th>
                 <a href="?sort=manufacturer&dir={% if sort_field=='manufacturer' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{ filter_mode }}&search={{ search_q }}">
                   {{ t("TABLE_MANUFACTURER") }}
                   {% if sort_field == 'manufacturer' %}{% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}{% else %} ↕{% endif %}
                 </a>
               </th>
+
               <th>
                 <a href="?sort=updated&dir={% if sort_field=='updated' and sort_dir=='asc' %}desc{% else %}asc{% endif %}&filter={{ filter_mode }}&search={{ search_q }}">
                   {{ t("TABLE_LAST_SEEN") }}
                   {% if sort_field == 'updated' %}{% if sort_dir == 'asc' %} ▲{% else %} ▼{% endif %}{% else %} ↕{% endif %}
                 </a>
               </th>
+
               <th>{{ t("TABLE_STATUS") }}</th>
               <th>{{ t("TABLE_ACTIONS") }}</th>
             </tr>
           </thead>
 
           <tbody>
-          {% for dev in devices %}
-            {% if dev.last_seen_scan == last_scan_id %}
-              {% set status_text = "Online" %}
-              {% set status_class = "status-badge-online" %}
-              {% set status_value = "online" %}
-            {% else %}
-              {% set status_text = "Offline" %}
-              {% set status_class = "status-badge-offline" %}
-              {% set status_value = "offline" %}
-            {% endif %}
+            {% set rows_rendered = 0 %}
 
-            {% if highlight_new and dev.is_new %}
-              {% set row_class = "blink-new" %}
-            {% else %}
-              {% set row_class = "" %}
-            {% endif %}
+            {% if grouped %}
+              {# --- GROUPED MODE (header per subnet, not per device) --- #}
 
-            <tr
-              id="deviceRow{{ dev.id }}"
-              class="{{ row_class }}"
-              data-device-id="{{ dev.id }}"
-              data-mac="{{ dev.mac_address }}"
-              data-is-new="{{ '1' if dev.is_new else '0' }}"
-              data-status="{{ status_value }}"
-              data-search="{{ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '') | lower }}"
-            >
-              <td class="align-middle">
-                {% if dev.ip_address and dev.ip_address != "-" %}
-                  {% set ip_list = dev.ip_address.split(",") %}
-                  {{ ip_list[0] | trim }}
-                  {% if ip_list|length > 1 %}
-                    <button type="button" class="btn btn-link btn-sm p-0 ml-1"
-                            data-toggle="modal" data-target="#ipModal{{ dev.id }}">
-                      (+{{ ip_list|length - 1 }} more)
-                    </button>
+              {% for grp in device_groups %}
+                {% set grp_idx = loop.index0 %}
+                <tr class="subnet-group-row">
+                  <td colspan="8" class="py-2 font-weight-bold">
+                    {{ grp.title }}
+                  </td>
+                </tr>
+
+                {% for dev in grp.devices %}
+                  {% set dev_idx = loop.index0 %}
+                  {% if dev.last_seen_scan == last_scan_id %}
+                    {% set status_text = "Online" %}
+                    {% set status_class = "status-badge-online" %}
+                    {% set status_value = "online" %}
+                  {% else %}
+                    {% set status_text = "Offline" %}
+                    {% set status_class = "status-badge-offline" %}
+                    {% set status_value = "offline" %}
                   {% endif %}
+
+                  {% if highlight_new and dev.is_new %}
+                    {% set row_class = "blink-new" %}
+                  {% else %}
+                    {% set row_class = "" %}
+                  {% endif %}
+
+                  <tr
+                    id="deviceRowG{{ grp_idx }}_D{{ dev.id }}"
+                    class="{{ row_class }}"
+                    data-device-id="{{ dev.id }}"
+                    data-mac="{{ dev.mac_address }}"
+                    data-is-new="{{ '1' if dev.is_new else '0' }}"
+                    data-status="{{ status_value }}"
+                    data-search="{{ (grp.title ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '')) | lower }}"
+                  >
+                    <td class="align-middle">
+                      {% if dev.ip_address and dev.ip_address != "-" %}
+                        {% set ip_list = dev.ip_address.split(",") %}
+                        {{ ip_list[0] | trim }}
+                        {% if ip_list|length > 1 %}
+                          <button type="button" class="btn btn-link btn-sm p-0 ml-1"
+                                  data-toggle="modal" data-target="#ipModal{{ dev.id }}">
+                            (+{{ ip_list|length - 1 }} more)
+                          </button>
+                        {% endif %}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </td>
+
+                    <td class="align-middle"><code class="text-light">{{ dev.mac_address or "N/A" }}</code></td>
+
+                    <td class="align-middle">
+                      {% if dev.alias %}
+                        <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ dev.alias }}</a>
+                      {% else %}
+                        <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ t("ALIAS_NONE") }}</a>
+                      {% endif %}
+                    </td>
+
+                    <td class="align-middle">
+                      {% if dev.ip_address != "-" %}
+                        <form method="POST" action="{{ url_for('ping_device', device_id=dev.id) }}" class="d-inline">
+                          <button type="submit" class="btn btn-info btn-sm">{{ t("TABLE_PING") }}</button>
+                        </form>
+                      {% else %}
+                        -
+                      {% endif %}
+                    </td>
+
+                    <td class="align-middle">
+                      <a href="#" data-toggle="modal" data-target="#manufacturerModal{{ dev.id }}">
+                        {% if dev.manufacturer %}{{ dev.manufacturer }}{% else %}{{ t("MANUFACTURER_UNKNOWN") }}{% endif %}
+                      </a>
+                    </td>
+
+                    <td class="align-middle">
+                      {% if dev.last_seen_at %}{{ dev.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") }}{% else %}-{% endif %}
+                    </td>
+
+                    <td class="align-middle">
+                      <span class="{{ status_class }}">{{ status_text }}</span>
+                      <span class="badge badge-warning ml-1 device-new-badge" style="{% if dev.is_new %}{% else %}display:none{% endif %}">new</span>
+                    </td>
+
+                    <td class="align-middle">
+                      {% if current_user.is_admin %}
+                        <div class="d-flex">
+                          {% if dev.is_new %}
+                            <button
+                              type="button"
+                              class="btn btn-warning btn-sm mr-1 js-mark-known"
+                              data-device-id="{{ dev.id }}"
+                            >
+                              {{ t("MARK_KNOWN") }}
+                            </button>
+                          {% endif %}
+
+                          <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
+                            <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
+                              {{ t("DELETE") }}
+                            </button>
+                          </form>
+                        </div>
+                      {% else %}
+                        -
+                      {% endif %}
+                    </td>
+                  </tr>
+
+                  {% set rows_rendered = rows_rendered + 1 %}
+                {% endfor %}
+              {% endfor %}
+
+            {% else %}
+              {# --- COLUMN MODE (or no subnet at all) --- #}
+
+              {% for dev in devices %}
+                {% if dev.last_seen_scan == last_scan_id %}
+                  {% set status_text = "Online" %}
+                  {% set status_class = "status-badge-online" %}
+                  {% set status_value = "online" %}
                 {% else %}
-                  -
+                  {% set status_text = "Offline" %}
+                  {% set status_class = "status-badge-offline" %}
+                  {% set status_value = "offline" %}
                 {% endif %}
-              </td>
 
-              <td class="align-middle"><code class="text-light">{{ dev.mac_address or "N/A" }}</code></td>
-
-              <td class="align-middle">
-                {% if dev.alias %}
-                  <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ dev.alias }}</a>
+                {% if highlight_new and dev.is_new %}
+                  {% set row_class = "blink-new" %}
                 {% else %}
-                  <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ t("ALIAS_NONE") }}</a>
+                  {% set row_class = "" %}
                 {% endif %}
-              </td>
 
-              <td class="align-middle">
-                {% if dev.ip_address != "-" %}
-                  <form method="POST" action="{{ url_for('ping_device', device_id=dev.id) }}" class="d-inline">
-                    <button type="submit" class="btn btn-info btn-sm">{{ t("TABLE_PING") }}</button>
-                  </form>
-                {% else %}
-                  -
+                {% set subnet_label = "-" %}
+                {% if show_subnet and dev.last_subnet_id and dev.last_subnet_id in subnet_map %}
+                  {% set subnet_label = subnet_map[dev.last_subnet_id] %}
                 {% endif %}
-              </td>
 
-              <td class="align-middle">
-                <a href="#" data-toggle="modal" data-target="#manufacturerModal{{ dev.id }}">
-                  {% if dev.manufacturer %}{{ dev.manufacturer }}{% else %}{{ t("MANUFACTURER_UNKNOWN") }}{% endif %}
-                </a>
-              </td>
+                <tr
+                  id="deviceRow{{ dev.id }}"
+                  class="{{ row_class }}"
+                  data-device-id="{{ dev.id }}"
+                  data-mac="{{ dev.mac_address }}"
+                  data-is-new="{{ '1' if dev.is_new else '0' }}"
+                  data-status="{{ status_value }}"
+                  data-search="{{ ((subnet_label if show_subnet else '') ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '')) | lower }}"
+                >
+                  {% if show_subnet %}
+                    <td class="align-middle">{{ subnet_label }}</td>
+                  {% endif %}
 
-              <td class="align-middle">
-                {% if dev.last_seen_at %}{{ dev.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") }}{% else %}-{% endif %}
-              </td>
-
-              <td class="align-middle">
-                <span class="{{ status_class }}">{{ status_text }}</span>
-                <span class="badge badge-warning ml-1 device-new-badge" style="{% if dev.is_new %}{% else %}display:none{% endif %}">new</span>
-              </td>
-
-              <td class="align-middle">
-                {% if current_user.is_admin %}
-                  <div class="d-flex">
-                    {% if dev.is_new %}
-                      <button
-                        type="button"
-                        class="btn btn-warning btn-sm mr-1 js-mark-known"
-                        data-device-id="{{ dev.id }}"
-                      >
-                        {{ t("MARK_KNOWN") }}
-                      </button>
+                  <td class="align-middle">
+                    {% if dev.ip_address and dev.ip_address != "-" %}
+                      {% set ip_list = dev.ip_address.split(",") %}
+                      {{ ip_list[0] | trim }}
+                      {% if ip_list|length > 1 %}
+                        <button type="button" class="btn btn-link btn-sm p-0 ml-1"
+                                data-toggle="modal" data-target="#ipModal{{ dev.id }}">
+                          (+{{ ip_list|length - 1 }} more)
+                        </button>
+                      {% endif %}
+                    {% else %}
+                      -
                     {% endif %}
+                  </td>
 
-                    <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
-                      <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
-                        {{ t("DELETE") }}
-                      </button>
-                    </form>
-                  </div>
-                {% else %}
-                  -
-                {% endif %}
+                  <td class="align-middle"><code class="text-light">{{ dev.mac_address or "N/A" }}</code></td>
+
+                  <td class="align-middle">
+                    {% if dev.alias %}
+                      <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ dev.alias }}</a>
+                    {% else %}
+                      <a href="#" data-toggle="modal" data-target="#aliasModal{{ dev.id }}">{{ t("ALIAS_NONE") }}</a>
+                    {% endif %}
+                  </td>
+
+                  <td class="align-middle">
+                    {% if dev.ip_address != "-" %}
+                      <form method="POST" action="{{ url_for('ping_device', device_id=dev.id) }}" class="d-inline">
+                        <button type="submit" class="btn btn-info btn-sm">{{ t("TABLE_PING") }}</button>
+                      </form>
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+
+                  <td class="align-middle">
+                    <a href="#" data-toggle="modal" data-target="#manufacturerModal{{ dev.id }}">
+                      {% if dev.manufacturer %}{{ dev.manufacturer }}{% else %}{{ t("MANUFACTURER_UNKNOWN") }}{% endif %}
+                    </a>
+                  </td>
+
+                  <td class="align-middle">
+                    {% if dev.last_seen_at %}{{ dev.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") }}{% else %}-{% endif %}
+                  </td>
+
+                  <td class="align-middle">
+                    <span class="{{ status_class }}">{{ status_text }}</span>
+                    <span class="badge badge-warning ml-1 device-new-badge" style="{% if dev.is_new %}{% else %}display:none{% endif %}">new</span>
+                  </td>
+
+                  <td class="align-middle">
+                    {% if current_user.is_admin %}
+                      <div class="d-flex">
+                        {% if dev.is_new %}
+                          <button
+                            type="button"
+                            class="btn btn-warning btn-sm mr-1 js-mark-known"
+                            data-device-id="{{ dev.id }}"
+                          >
+                            {{ t("MARK_KNOWN") }}
+                          </button>
+                        {% endif %}
+
+                        <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
+                          <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
+                            {{ t("DELETE") }}
+                          </button>
+                        </form>
+                      </div>
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+                </tr>
+
+                {% set rows_rendered = rows_rendered + 1 %}
+              {% endfor %}
+            {% endif %}
+
+            <tr id="noResultsRow" style="display:none;">
+              <td colspan="{% if show_subnet and not grouped %}9{% else %}8{% endif %}" class="text-center text-muted py-3">
+                {{ t("NO_MATCHING_DEVICES") }}
               </td>
             </tr>
-          {% endfor %}
-
-          <tr id="noResultsRow" style="display:none;">
-            <td colspan="8" class="text-center text-muted py-3">
-              {{ t("NO_MATCHING_DEVICES") }}
-            </td>
-          </tr>
 
           </tbody>
         </table>
@@ -428,6 +580,12 @@
     </div>
   </div>
 </div>
+
+<style>
+.subnet-group-row td{
+  background: rgba(255,255,255,0.06);
+}
+</style>
 
 <meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
 <div id="mark-known-endpoints"

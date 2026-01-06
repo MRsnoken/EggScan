@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] – 2026-01-06
+
+### Added
+- Subnet labeling and grouped subnet view.
+- Subnets can now be given human-readable labels (e.g. Home, Guest, Lab).
+- Labeled subnets can be displayed either:
+  - as a column in the device table, or
+  - grouped into subnet sections.
+- Devices are shown strictly based on where they were observed during the latest scan.
+- Devices with addresses in multiple subnets may appear in multiple groups.
+
+### Improved
+- Scan result handling for multi-subnet environments is now deterministic and inspectable.
+- Database schema initialization and upgrades are handled automatically at startup.
+
+### Installation / Upgrade
+- Installer is upgrade-safe:
+  - Existing database and secret key are never overwritten.
+  - Schema changes are applied automatically on upgrade.
+  - Fresh installs and upgrades are detected correctly.
+
 ## [1.3.0] – 2026-01-02
 
 ### Added
@@ -21,22 +42,21 @@ All notable changes to this project will be documented in this file.
   - Improved visibility of text inside modules on the index page.
 - Smoother and more predictable UI behavior during scans and modal interactions.
 
-
-
 ## [v1.2.1] – 2025-12-31
+
 ### Fixed
 - Fixed setup page where the admin creation form was not rendered on fresh installs.
 - Fixed installer service start logic on fresh installs (restart now falls back to start).
 
-
 ## [v1.2.0] – 2025-12-31
+
 ### Added
 - Theme support: Default, Dark, Light and Cosmos.
 - Frontend refactor: UI split into templates and static assets (CSS/JS).
 - Upgrade-safe installer: keeps database and secret key, and backs up old files on upgrade.
 
-
 ## [v1.1.0] – 2025-12-02
+
 ### Added
 - New dashboard view with summary cards for device statistics (e.g. total devices, online/offline).
 - Manufacturer modal: you can now click the manufacturer field to review and edit vendor information directly in the UI when it is missing or unknown.
@@ -52,10 +72,12 @@ All notable changes to this project will be documented in this file.
 - Column widths and table layout so text is no longer cut off or wrapped in an ugly way.
 
 ## [v1.0.4] – 2025-11-24
+
 ### Fixed
 - Swedish translation updated: the “Last Seen” column header now shows “Senast sedd”.
 
 ## [v1.0.3] – 2025-11-24
+
 ### Added
 - `last_seen_at` timestamp for each device.
 - New “Last Seen” column in the UI.
@@ -65,15 +87,17 @@ All notable changes to this project will be documented in this file.
 - Scan timestamps now use the system’s local time.
 
 ### Fixed
-- Database migration for `last_seen_at` is now handled automatically **via the install script** on upgrade.
+- Database migration for `last_seen_at` is now handled automatically via the install script on upgrade.
 - IPv6 cleanup properly removes IPv6 addresses when IPv6 discovery is disabled.
 
 ## [v1.0.2] – 2025-11-19
+
 ### Changed
 - Updated IP handling: device IP lists are now rebuilt on each scan, ensuring only addresses detected in the latest scan are stored.
 - Replaced checkbox controls with modern toggle switches for a cleaner and more consistent UI.
 
 ## [v1.0.1] – 2025-11-16
+
 ### Changed
 - Added modal dialog for devices with multiple IP addresses (IPv4/IPv6).
 - Improved text readability in dialogs (modals use dark text on light background).
@@ -81,6 +105,7 @@ All notable changes to this project will be documented in this file.
 - Bumped internal version to 1.0.1.
 
 ## [v1.0.0] – 2025-11-15
+
 ### Added
 - Initial public release of EggScan.
 - Nmap-based network scan for configured subnets.

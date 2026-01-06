@@ -502,11 +502,75 @@ function hookModalCloseForPendingReload() {
     hookUpdateButtonClick();
     hookModalCloseForPendingReload();
     hookMarkKnownAjax();
+    initSubnetDragAndDrop();
   }
+function initSubnetDragAndDrop() {
+  var tbody = document.getElementById("subnetSortable");
+  if (!tbody) return;
 
+  var draggedRow = null;
+
+  tbody.addEventListener("dragstart", function (e) {
+    draggedRow = e.target.closest("tr");
+    if (draggedRow) draggedRow.classList.add("dragging");
+  });
+
+  tbody.addEventListener("drop", function (e) {
+  e.preventDefault();
+  saveSubnetOrder();
+});
+
+  tbody.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    var targetRow = e.target.closest("tr");
+    if (!draggedRow || !targetRow || draggedRow === targetRow) return;
+
+    var rect = targetRow.getBoundingClientRect();
+    var next = (e.clientY - rect.top) > (rect.height / 2);
+    tbody.insertBefore(draggedRow, next ? targetRow.nextSibling : targetRow);
+  });
+
+function saveSubnetOrder() {
+  var ids = [];
+  tbody.querySelectorAll("tr").forEach(function (tr) {
+    var id = tr.getAttribute("data-subnet-id");
+    if (id) ids.push(id);
+  });
+
+  fetch("/update_subnet_order", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    body: JSON.stringify({ order: ids })
+  })
+    .then(function (res) {
+      if (res.redirected) {
+        console.error("Redirected while saving subnet order:", res.url);
+        throw new Error("Redirected");
+      }
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status);
+      }
+      return res.json();
+    })
+    .then(function (data) {
+      if (!data || data.ok !== true) {
+        throw new Error("Server returned ok=false");
+      }
+      console.log("Subnet order saved:", ids);
+    })
+    .catch(function (err) {
+      console.error("Failed to save subnet order:", err);
+    });
+}
+}
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {
     init();
   }
+  
 })();

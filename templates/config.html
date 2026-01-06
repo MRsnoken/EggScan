@@ -40,22 +40,38 @@
         </form>
 
         <div class="table-responsive mb-3">
-	    <table class="table table-striped table-sm table-theme">
+          <table class="table table-striped table-sm table-theme">
             <thead>
               <tr>
-                <th>{{ t("CONFIG_SUBNET_COL") }}</th>
-                <th>{{ t("CONFIG_SUBNET_DELETE_COL") }}</th>
+                <th style="width: 40%;">{{ t("CONFIG_SUBNET_COL") }}</th>
+                <th style="width: 40%;">{{ t("CONFIG_SUBNET_LABEL_COL") }}</th>
+                <th style="width: 20%;">{{ t("CONFIG_SUBNET_DELETE_COL") }}</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="subnetSortable">
               {% for sn in subnets %}
-              <tr>
-                <td>{{ sn.cidr }}</td>
-                <td>
+              <tr data-subnet-id="{{ sn.id }}" draggable="true" class="subnet-row">
+                <td class="align-middle">
+                  <span class="drag-handle mr-2">☰</span>
+                  {{ sn.cidr }}
+                </td>
+                <td class="align-middle">
+                  <input
+                    type="text"
+                    name="label_{{ sn.id }}"
+                    class="form-control form-control-sm"
+                    placeholder="{{ t('CONFIG_SUBNET_LABEL_PLACEHOLDER') }}"
+                    value="{{ sn.label or '' }}"
+                    form="settingsForm"
+                  >
+                </td>
+                <td class="align-middle">
                   <form method="POST" class="d-inline">
                     <input type="hidden" name="action" value="delete_subnet">
                     <input type="hidden" name="subnet_id" value="{{ sn.id }}">
-                    <button type="submit" class="btn btn-danger btn-sm">{{ t("CONFIG_SUBNET_DELETE_BUTTON") }}</button>
+                    <button type="submit" class="btn btn-danger btn-sm">
+                      {{ t("CONFIG_SUBNET_DELETE_BUTTON") }}
+                    </button>
                   </form>
                 </td>
               </tr>
@@ -70,12 +86,47 @@
         </form>
 
         <hr class="border-secondary">
+
+        <h5 class="mb-3">{{ t("CONFIG_SUBNET_VIEW_MODE") }}</h5>
+        <div class="mb-4 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
+          <div class="custom-control custom-radio mb-1">
+            <input
+              type="radio"
+              id="subnetModeColumn"
+              name="subnet_view_mode"
+              value="column"
+              class="custom-control-input"
+              form="settingsForm"
+              {% if subnet_view_mode == 'column' %}checked{% endif %}
+            >
+            <label class="custom-control-label" for="subnetModeColumn">{{ t("CONFIG_SUBNET_VIEW_MODE_COLUMN") }}</label>
+          </div>
+
+          <div class="custom-control custom-radio">
+            <input
+              type="radio"
+              id="subnetModeGrouped"
+              name="subnet_view_mode"
+              value="grouped"
+              class="custom-control-input"
+              form="settingsForm"
+              {% if subnet_view_mode == 'grouped' %}checked{% endif %}
+            >
+            <label class="custom-control-label" for="subnetModeGrouped">{{ t("CONFIG_SUBNET_VIEW_MODE_GROUPED") }}</label>
+          </div>
+
+          <small class="form-text text-muted">
+            {{ t("CONFIG_SUBNET_VIEW_MODE_HINT") }}
+          </small>
+        </div>
+
+        <hr class="border-secondary">
         <h5 class="mb-3">{{ t("CONFIG_OTHER_SETTINGS") }}</h5>
 
         <div class="mb-3 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
           <div class="d-flex justify-content-between align-items-center flex-wrap">
             <div class="mb-2 mb-md-0">
-		<div class="font-weight-bold">{{ t("THEME_LABEL") }}</div>
+              <div class="font-weight-bold">{{ t("THEME_LABEL") }}</div>
             </div>
 
             <form method="POST" action="{{ url_for('update_theme') }}" class="form-inline">
@@ -85,12 +136,12 @@
                 <option value="light" {% if theme == 'light' %}selected{% endif %}>Light</option>
                 <option value="cosmos" {% if theme == 'cosmos' %}selected{% endif %}>Cosmos</option>
               </select>
-		<button type="submit" class="btn btn-success">{{ t("SAVE_THEME") }}</button>
+              <button type="submit" class="btn btn-success">{{ t("SAVE_THEME") }}</button>
             </form>
           </div>
         </div>
 
-        <form method="POST">
+        <form method="POST" id="settingsForm">
           <input type="hidden" name="action" value="update_settings">
 
           <div class="form-group mb-2">

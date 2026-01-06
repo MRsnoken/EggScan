@@ -965,3 +965,11 @@ body.page-login .form-control::placeholder,
 body.page-setup .form-control::placeholder{
   color: #9ca3af !important;
 }
+.drag-handle {
+  cursor: grab;
+  opacity: 0.7;
+}
+
+.subnet-row.dragging {
+  opacity: 0.4;
+}
