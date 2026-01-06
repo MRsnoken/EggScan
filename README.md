@@ -19,6 +19,9 @@ online/offline status and discovery history.
 EggScan is intentionally simple, fully local and dependency-light.
 There is no cloud backend, no external services and no hidden telemetry.
 
+EggScan acts as a local network scanner that continuously discovers and tracks
+devices on your LAN, maintaining a clear and inspectable state after each scan.
+
 **Official repository:** https://github.com/MRsnoken/EggScan  
 *For security and update safety, always download and install EggScan from the official repository.*
 
