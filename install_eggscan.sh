@@ -15,11 +15,13 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="/opt/eggscan"
 VENV_DIR="$INSTALL_DIR/venv"
-SERVICE_FILE="/lib/systemd/system/eggscan.service"
+
+WEB_SERVICE_FILE="/lib/systemd/system/eggscan-web.service"
+SCAN_SERVICE_FILE="/lib/systemd/system/eggscan-scan.service"
+OLD_SERVICE_FILE="/lib/systemd/system/eggscan.service"
 
 DB_PATH="$INSTALL_DIR/eggscan.db"
 SECRET_PATH="$INSTALL_DIR/secret_key.txt"
-
 APP_MAIN="$INSTALL_DIR/eggscan.py"
 
 IS_UPGRADE=0
@@ -30,13 +32,16 @@ fi
 echo "Installing from directory: $SCRIPT_DIR"
 echo "Install directory: $INSTALL_DIR"
 echo "Virtualenv: $VENV_DIR"
-echo "Service file: $SERVICE_FILE"
+echo "Web service file: $WEB_SERVICE_FILE"
+echo "Scan service file: $SCAN_SERVICE_FILE"
 echo
 
 check_dpkg_lock() {
-  echo "Checking if apt/dpkg is busy (locks on /var/lib/dpkg/lock* )..."
-  while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
-        fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+  echo "Checking if apt/dpkg is busy (locks on dpkg + apt lists)..."
+  while \
+    fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+    fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+    fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
     echo "  dpkg/apt is locked by another process. Waiting 5 seconds..."
     sleep 5
   done
@@ -59,12 +64,13 @@ echo "Updating package index..."
 check_dpkg_lock
 apt-get update -y
 
-echo "Installing system packages (python3, pip, venv, nmap, iproute2, sqlite3, rsync)..."
+echo "Installing system packages (python3, pip, venv, nmap, iproute2, sqlite3, rsync, psmisc)..."
 check_dpkg_lock
-apt-get install -y python3 python3-pip python3-venv nmap iproute2 sqlite3 rsync
+apt-get install -y python3 python3-pip python3-venv nmap iproute2 sqlite3 rsync psmisc
 
 need_cmd rsync
 need_cmd sqlite3
+need_cmd fuser
 
 echo
 echo "System packages done."
@@ -111,7 +117,8 @@ else
     flask_sqlalchemy \
     Flask-Login \
     Flask-Bcrypt \
-    python-nmap
+    python-nmap \
+    gunicorn
 fi
 
 echo
@@ -169,7 +176,6 @@ if [ -n "$BACKUP_DIR" ] && [ -d "$INSTALL_DIR/static" ]; then
   cp -a "$INSTALL_DIR/static" "$BACKUP_DIR/" || true
 fi
 
-# Copy eggscan.py + version.json always (code update)
 cp -a "$SCRIPT_DIR/eggscan.py" "$APP_MAIN"
 chmod 755 "$APP_MAIN"
 
@@ -179,7 +185,6 @@ else
   echo "WARNING: version.json not found in $SCRIPT_DIR - continuing without it."
 fi
 
-# Copy templates/static if they exist in the new version
 if [ -d "$SCRIPT_DIR/templates" ]; then
   mkdir -p "$INSTALL_DIR/templates"
   rsync -a --delete "$SCRIPT_DIR/templates/" "$INSTALL_DIR/templates/"
@@ -194,7 +199,6 @@ else
   echo "NOTE: static/ not found in installer source; leaving existing static as-is."
 fi
 
-# Copy optional docs/changelog etc (harmless)
 if [ -f "$SCRIPT_DIR/CHANGELOG.md" ]; then
   cp -a "$SCRIPT_DIR/CHANGELOG.md" "$INSTALL_DIR/CHANGELOG.md"
 fi
@@ -205,9 +209,6 @@ if [ -f "$SCRIPT_DIR/LICENSE" ]; then
   cp -a "$SCRIPT_DIR/LICENSE" "$INSTALL_DIR/LICENSE"
 fi
 
-# IMPORTANT: do NOT overwrite DB or secret key (upgrade-safe)
-# - secret_key.txt is normally created by EggScan on first run (recommended)
-# - this block only copies if you ship one AND it's a fresh install
 if [ -f "$SCRIPT_DIR/secret_key.txt" ]; then
   if [ -f "$SECRET_PATH" ]; then
     echo "Keeping existing secret_key.txt (not overwriting)."
@@ -222,35 +223,50 @@ echo "Application files copied."
 echo
 
 # ------------------------------------------------------------------------------
-# 6. Database schema bootstrap (run app schema logic once during install/upgrade)
+# 6. Database schema bootstrap
 # ------------------------------------------------------------------------------
 
-echo "Running DB schema bootstrap (ensure_db_schema in eggscan.py)..."
-"$PYTHON_BIN" - << EOF
-import sys
-sys.path.insert(0, "${INSTALL_DIR}")
-import eggscan  # triggers ensure_db_schema() at import time
-print(" DB schema bootstrap OK")
-EOF
-
+echo "Skipping DB schema bootstrap (schema is handled automatically at startup)."
 echo
 
 # ------------------------------------------------------------------------------
-# 7. Create/Update systemd unit
+# 7. Create/Update systemd units (web + scan worker)
+#    - Migrates from old eggscan.service if it exists
 # ------------------------------------------------------------------------------
 
-echo "Creating systemd unit at $SERVICE_FILE ..."
+echo "Creating systemd units:"
+echo "  Web:  $WEB_SERVICE_FILE"
+echo "  Scan: $SCAN_SERVICE_FILE"
+echo
 
-cat > "$SERVICE_FILE" <<EOF
+old_unit_exists=0
+if systemctl list-unit-files eggscan.service >/dev/null 2>&1; then
+  old_unit_exists=1
+fi
+
+if [ "$old_unit_exists" -eq 1 ]; then
+  echo "Old eggscan.service detected -> stopping/disabling to avoid duplicate instances..."
+  systemctl stop eggscan.service 2>/dev/null || true
+  systemctl disable eggscan.service 2>/dev/null || true
+  systemctl mask eggscan.service 2>/dev/null || true
+fi
+
+if [ -f "$OLD_SERVICE_FILE" ]; then
+  echo "Removing old unit file: $OLD_SERVICE_FILE"
+  rm -f "$OLD_SERVICE_FILE"
+fi
+
+cat > "$WEB_SERVICE_FILE" <<EOF
 [Unit]
-Description=EggScan - Network Scanner
+Description=EggScan - Web UI (Gunicorn)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$PYTHON_BIN $INSTALL_DIR/eggscan.py
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=$VENV_DIR/bin/gunicorn -w 2 --threads 2 -b 0.0.0.0:5000 --access-logfile - --error-logfile - eggscan:app
 Restart=always
 RestartSec=5
 
@@ -258,20 +274,45 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-chmod 644 "$SERVICE_FILE"
+chmod 644 "$WEB_SERVICE_FILE"
 
-echo "Reloading systemd daemon..."
+cat > "$SCAN_SERVICE_FILE" <<EOF
+[Unit]
+Description=EggScan - Scan Worker (single instance)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$INSTALL_DIR
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=$PYTHON_BIN $INSTALL_DIR/eggscan.py scan-worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+chmod 644 "$SCAN_SERVICE_FILE"
+
 systemctl daemon-reload
 
-echo "Enabling EggScan service at boot..."
-systemctl enable eggscan.service
+echo "Enabling services at boot..."
+systemctl enable eggscan-web.service
+systemctl enable eggscan-scan.service
 
-echo "Restarting EggScan service..."
-systemctl restart eggscan.service || systemctl start eggscan.service
+echo "Restarting services..."
+systemctl restart eggscan-scan.service || systemctl start eggscan-scan.service
+systemctl restart eggscan-web.service || systemctl start eggscan-web.service
 
 echo
-echo "=== Status for eggscan.service ==="
-systemctl status eggscan.service --no-pager || true
+echo "=== Status for eggscan-web.service ==="
+systemctl status eggscan-web.service --no-pager || true
+
+echo
+echo "=== Status for eggscan-scan.service ==="
+systemctl status eggscan-scan.service --no-pager || true
 
 echo
 echo " EggScan installation finished."

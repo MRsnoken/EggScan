@@ -156,10 +156,11 @@
         </div>
 
         <div class="status-item">
-          <span class="status-label">{{ t("STATUSBAR_LAST_SCAN") }}:</span>
-          <span class="status-value">{% if last_scan_time %}{{ last_scan_time }}{% else %}-{% endif %}</span>
-        </div>
-
+        <span class="status-label">{{ t("STATUSBAR_LAST_SCAN") }}:</span>
+         <span class="status-value">
+         {% if last_scan_time %}{{ last_scan_time }}{% else %}-{% endif %}
+       </span>
+     </div>
         <div class="status-item">
           <span class="status-label">{{ t("STATUSBAR_IPV6") }}:</span>
           <span class="status-value">{% if ipv6_enabled %}{{ t("STATUSBAR_ON") }}{% else %}{{ t("STATUSBAR_OFF") }}{% endif %}</span>
@@ -331,7 +332,11 @@
                     </td>
 
                     <td class="align-middle">
-                      {% if dev.last_seen_at %}{{ dev.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") }}{% else %}-{% endif %}
+                      {% if dev.last_seen_at %}
+  {{ format_local(dev.last_seen_at, display_tz) }}
+{% else %}
+  -
+{% endif %}
                     </td>
 
                     <td class="align-middle">
@@ -448,7 +453,7 @@
                   </td>
 
                   <td class="align-middle">
-                    {% if dev.last_seen_at %}{{ dev.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") }}{% else %}-{% endif %}
+                    
                   </td>
 
                   <td class="align-middle">

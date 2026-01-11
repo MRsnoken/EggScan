@@ -1,3 +1,4 @@
+{# templates/config.html #}
 {% extends "base.html" %}
 
 {% block title %}{{ t("CONFIG_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}{% endblock %}
@@ -31,6 +32,10 @@
             </div>
           {% endif %}
         {% endwith %}
+
+        {# -------------------------
+           SUBNETS
+        -------------------------- #}
 
         <form method="POST" class="form-inline mb-3">
           <input type="hidden" name="action" value="add_subnet">
@@ -66,7 +71,7 @@
                   >
                 </td>
                 <td class="align-middle">
-                  <form method="POST" class="d-inline">
+                  <form method="POST" class="d-inline" onsubmit="return confirm('{{ t('CONFIRM_DELETE') }}');">
                     <input type="hidden" name="action" value="delete_subnet">
                     <input type="hidden" name="subnet_id" value="{{ sn.id }}">
                     <button type="submit" class="btn btn-danger btn-sm">
@@ -86,6 +91,10 @@
         </form>
 
         <hr class="border-secondary">
+
+        {# -------------------------
+           SUBNET VIEW MODE
+        -------------------------- #}
 
         <h5 class="mb-3">{{ t("CONFIG_SUBNET_VIEW_MODE") }}</h5>
         <div class="mb-4 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
@@ -121,6 +130,281 @@
         </div>
 
         <hr class="border-secondary">
+
+        {# -------------------------
+           ALERTS
+        -------------------------- #}
+
+        <h5 class="mb-3">{{ t("ALERTS_TITLE") }}</h5>
+
+        <div class="mb-4 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
+          <div class="d-flex align-items-center mb-3">
+            <span class="mr-2">{{ t("ALERTS_DISCORD_ENABLE") }}</span>
+            <label class="toggle-switch mb-0">
+              <input type="checkbox" name="discord_enabled" form="settingsForm" {% if discord_enabled %}checked{% endif %}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="form-group mb-3">
+            <label>{{ t("ALERTS_DISCORD_WEBHOOK") }}</label>
+            <input
+              type="text"
+              name="discord_webhook_url"
+              form="settingsForm"
+              class="form-control"
+              placeholder="https://discord.com/api/webhooks/..."
+              value="{{ discord_webhook_url or '' }}"
+            >
+          </div>
+
+          <div class="form-group mb-3">
+            <label>{{ t("ALERTS_OFFLINE_THRESHOLD") }}</label>
+            <input
+              type="number"
+              name="offline_threshold_minutes"
+              form="settingsForm"
+              class="form-control"
+              min="1"
+              value="{{ offline_threshold_minutes }}"
+            >
+          </div>
+
+          <hr class="border-secondary">
+
+          <div class="form-group mb-3">
+
+
+            <label class="d-block mb-2">{{ t("ALERTS_NEW_DEVICE_TITLE") }}</label>
+
+<select id="newDeviceAlertMode" name="new_device_alert_mode" form="settingsForm" class="form-control mb-2">
+  <option value="off" {% if new_device_alert_mode == 'off' %}selected{% endif %}>{{ t("ALERTS_NEW_DEVICE_OFF") }}</option>
+  <option value="global" {% if new_device_alert_mode == 'global' %}selected{% endif %}>{{ t("ALERTS_NEW_DEVICE_GLOBAL") }}</option>
+  <option value="subnets" {% if new_device_alert_mode == 'subnets' %}selected{% endif %}>{{ t("ALERTS_NEW_DEVICE_SUBNETS") }}</option>
+  <option value="both" {% if new_device_alert_mode == 'both' %}selected{% endif %}>{{ t("ALERTS_NEW_DEVICE_BOTH") }}</option>
+</select>
+
+<small class="form-text text-muted mb-2">
+  {{ t("ALERTS_NEW_DEVICE_HINT") }}
+</small>
+
+<div id="newDeviceSubnetBlock">
+  <label class="d-block mb-1">{{ t("ALERTS_NEW_DEVICE_SUBNET_PICKER_TITLE") }}</label>
+  <select name="new_device_alert_subnets" form="settingsForm" class="form-control" multiple size="6">
+    {% for sn in subnets %}
+      {% set sn_label = (sn.label.strip() if sn.label and sn.label.strip() else sn.cidr) %}
+      <option value="{{ sn.id }}" {% if sn.id in new_device_alert_subnets %}selected{% endif %}>
+        {{ sn_label }}
+      </option>
+    {% endfor %}
+  </select>
+
+  <small class="form-text text-muted">
+  {{ t("ALERTS_NEW_DEVICE_SUBNET_HINT") }}
+</small>
+</div>
+          </div>
+
+          <hr class="border-secondary">
+
+          <div class="form-group mb-3">
+            <label class="d-block mb-2">{{ t("ALERTS_SCOPE_LABEL") }}</label>
+
+            <div class="custom-control custom-radio mb-1">
+              <input
+                type="radio"
+                id="alertScopeAll"
+                name="alert_scope"
+                value="all"
+                class="custom-control-input"
+                form="settingsForm"
+                {% if alert_scope == 'all' %}checked{% endif %}
+              >
+              <label class="custom-control-label" for="alertScopeAll">{{ t("ALERTS_SCOPE_ALL") }}</label>
+            </div>
+
+            <div class="custom-control custom-radio">
+              <input
+                type="radio"
+                id="alertScopeSelected"
+                name="alert_scope"
+                value="selected"
+                class="custom-control-input"
+                form="settingsForm"
+                {% if alert_scope == 'selected' %}checked{% endif %}
+              >
+              <label class="custom-control-label" for="alertScopeSelected">{{ t("ALERTS_SCOPE_SELECTED") }}</label>
+            </div>
+          </div>
+
+          <div id="alertDevicePicker" class="{% if alert_scope != 'selected' %}d-none{% endif %}">
+            <div class="d-flex justify-content-between align-items-center flex-wrap mb-2">
+              <div class="font-weight-bold">{{ t("ALERTS_DEVICES_TITLE") }}</div>
+
+              <div class="mt-2 mt-md-0 d-flex align-items-center">
+              <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary mr-2"
+              id="alertDeviceToggleBtn"
+              data-toggle="collapse"
+              data-target="#alertDeviceCollapse"
+              aria-expanded="false"
+              aria-controls="alertDeviceCollapse"
+            >
+  {{ t("ALERTS_SHOW") }}
+</button>
+
+                <button type="button" class="btn btn-sm btn-outline-success mr-2" id="alertsEnableAllBtn">
+                  {{ t("ALERTS_ENABLE_ALL") }}
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="alertsDisableAllBtn">
+                  {{ t("ALERTS_DISABLE_ALL") }}
+                </button>
+              </div>
+            </div>
+
+            <div id="alertDeviceCollapse" class="collapse">
+              <div class="form-group mb-2">
+                <input
+                  type="text"
+                  id="alertFilterInput"
+                  class="form-control"
+                  placeholder="{{ t('ALERTS_FILTER_PLACEHOLDER') }}"
+                >
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-striped table-sm table-theme">
+                  <thead>
+                    <tr>
+                      <th style="width: 15%;">{{ t("ALERTS_COL_ON") }}</th>
+                      <th style="width: 45%;">{{ t("TABLE_ALIAS") }}</th>
+                      <th style="width: 40%;">{{ t("TABLE_MAC") }}</th>
+                    </tr>
+                  </thead>
+                  <tbody id="alertDeviceTbody">
+                    {% for d in all_devices %}
+                    {% set row = alert_map.get(d.id) %}
+                    <tr class="alert-dev-row" data-search="{{ (d.alias or '')|lower }} {{ (d.mac_address or '')|lower }}">
+                      <td class="align-middle">
+                        <label class="toggle-switch mb-0">
+                          <input
+                            type="checkbox"
+                            name="alert_dev_{{ d.id }}"
+                            form="settingsForm"
+                            {% if row and row.enabled %}checked{% endif %}
+                          >
+                          <span class="toggle-slider"></span>
+                        </label>
+                      </td>
+                      <td class="align-middle">{{ d.alias or '-' }}</td>
+                      <td class="align-middle">{{ d.mac_address or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-2">
+            <form method="POST" action="{{ url_for('test_discord') }}" class="d-inline">
+              <button type="submit" class="btn btn-info btn-sm">{{ t("ALERTS_TEST_BUTTON") }}</button>
+            </form>
+          </div>
+        </div>
+
+        <script>
+(function() {
+  const scopeAll = document.getElementById("alertScopeAll");
+  const scopeSelected = document.getElementById("alertScopeSelected");
+  const picker = document.getElementById("alertDevicePicker");
+
+  const filterInput = document.getElementById("alertFilterInput");
+  const rows = document.querySelectorAll(".alert-dev-row");
+
+  const enableAllBtn = document.getElementById("alertsEnableAllBtn");
+  const disableAllBtn = document.getElementById("alertsDisableAllBtn");
+
+  const collapseEl = document.getElementById("alertDeviceCollapse");
+  const toggleBtn = document.getElementById("alertDeviceToggleBtn");
+
+  const LABEL_SHOW = "{{ t('ALERTS_SHOW') }}";
+  const LABEL_HIDE = "{{ t('ALERTS_HIDE') }}";
+
+  function setToggleLabel() {
+    if (!toggleBtn || !collapseEl) return;
+    const isOpen = collapseEl.classList.contains("show");
+    toggleBtn.textContent = isOpen ? LABEL_HIDE : LABEL_SHOW;
+    toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  }
+
+  function updatePickerVisibility() {
+    if (!picker) return;
+
+    if (scopeSelected && scopeSelected.checked) {
+      picker.classList.remove("d-none");
+    } else {
+      picker.classList.add("d-none");
+    }
+
+    setToggleLabel();
+  }
+
+  if (scopeAll) scopeAll.addEventListener("change", updatePickerVisibility);
+  if (scopeSelected) scopeSelected.addEventListener("change", updatePickerVisibility);
+
+  if (filterInput) {
+    filterInput.addEventListener("input", function() {
+      const q = (filterInput.value || "").trim().toLowerCase();
+      rows.forEach(r => {
+        const hay = (r.getAttribute("data-search") || "").toLowerCase();
+        r.style.display = (!q || hay.includes(q)) ? "" : "none";
+      });
+    });
+  }
+
+  function setAllCheckboxes(state) {
+    rows.forEach(r => {
+      if (r.style.display === "none") return;
+      const cb = r.querySelector("input[type='checkbox']");
+      if (cb) cb.checked = state;
+    });
+  }
+
+  if (enableAllBtn) enableAllBtn.addEventListener("click", function() { setAllCheckboxes(true); });
+  if (disableAllBtn) disableAllBtn.addEventListener("click", function() { setAllCheckboxes(false); });
+
+  if (collapseEl) {
+    collapseEl.addEventListener("shown.bs.collapse", setToggleLabel);
+    collapseEl.addEventListener("hidden.bs.collapse", setToggleLabel);
+  }
+
+  setToggleLabel();
+  updatePickerVisibility();
+    const newDeviceModeEl = document.getElementById("newDeviceAlertMode");
+  const newDeviceSubnetBlock = document.getElementById("newDeviceSubnetBlock");
+
+  function syncNewDeviceSubnetVisibility() {
+    if (!newDeviceModeEl || !newDeviceSubnetBlock) return;
+    const v = (newDeviceModeEl.value || "").toLowerCase();
+    const show = (v === "subnets" || v === "both");
+    newDeviceSubnetBlock.classList.toggle("d-none", !show);
+  }
+
+  if (newDeviceModeEl) {
+    newDeviceModeEl.addEventListener("change", syncNewDeviceSubnetVisibility);
+  }
+  syncNewDeviceSubnetVisibility();
+})();
+</script>
+
+        <hr class="border-secondary">
+
+        {# -------------------------
+           OTHER SETTINGS (THEME)
+        -------------------------- #}
+
         <h5 class="mb-3">{{ t("CONFIG_OTHER_SETTINGS") }}</h5>
 
         <div class="mb-3 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
@@ -141,6 +425,10 @@
           </div>
         </div>
 
+        {# -------------------------
+           MAIN SETTINGS FORM
+        -------------------------- #}
+
         <form method="POST" id="settingsForm">
           <input type="hidden" name="action" value="update_settings">
 
@@ -151,6 +439,31 @@
               <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t("LANG_EN") }}</option>
             </select>
           </div>
+
+          <hr class="border-secondary">
+
+          <div class="form-group mb-2">
+           <label class="d-block mb-1">{{ t("DISPLAY_TIMEZONE_LABEL") }}</label>
+<div class="text-muted mb-2" style="font-size: 0.9rem;">
+  {{ t("DISPLAY_TIMEZONE_HINT_UI") }}
+</div>
+
+<input
+  type="text"
+  name="display_timezone"
+  class="form-control"
+  list="timezone-list"
+  placeholder="{{ t('DISPLAY_TIMEZONE_PLACEHOLDER') }}"
+  value="{{ display_tz }}"
+>
+            <datalist id="timezone-list">
+              {% for tz in timezones %}
+                <option value="{{ tz }}">
+              {% endfor %}
+            </datalist>
+          </div>
+
+          <hr class="border-secondary">
 
           <div class="d-flex align-items-center mb-2">
             <span class="mr-2">{{ t("CONFIG_IPV6_ENABLE") }}</span>
@@ -182,7 +495,14 @@
 
           <div class="form-group mb-3">
             <label for="ipv6_utils">{{ t("CONFIG_IPV6_UTILS") }}</label>
-            <input type="text" id="ipv6_utils" name="ipv6_utils" class="form-control" placeholder="eth0 / enp0s3 / wlan0" value="{{ ipv6_utils }}">
+            <input
+              type="text"
+              id="ipv6_utils"
+              name="ipv6_utils"
+              class="form-control"
+              placeholder="eth0 / enp0s3 / wlan0"
+              value="{{ ipv6_utils }}"
+            >
           </div>
 
           <button type="submit" class="btn btn-success">{{ t("CONFIG_SAVE_BUTTON") }}</button>

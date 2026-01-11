@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] – 2026-01-11
+
+## Added
+  -  Discord alert integration (optional):
+  -  Alerts for new devices.
+  -  Alerts for devices appearing in new subnets.
+  -  Offline / back-online alerts with configurable thresholds.
+  -  Timezone-aware UI display:
+  -  All timestamps are stored internally as UTC.
+  -  UI can display times in a selectable timezone without affecting stored data.
+  -  Manual scan requests now integrate cleanly with the scheduled scan loop.
+  -  Scan locking logic to ensure only one scan can run at a time, even if multiple requests occur.
+
+## Changed
+  -  Web interface is now served via Gunicorn by default (production-ready setup).
+  -  Scanning logic is fully separated from the web UI:
+  -  One dedicated scan worker process.
+  -  Web UI is read-only with respect to scan execution state.
+  -  Manual scans reset the scan interval timer (next scheduled scan runs after the manual scan).
+  -  Scan state is now always derived from the database, ensuring consistent results across users.
+
+## Improved
+  -  Overall stability under concurrent access (multiple users viewing the UI).
+  -  More predictable scan behavior in mixed environments (manual + scheduled scans).
+  -  Clearer separation of responsibilities between web service and scan service.
+  -  SQLite concurrency tuned for this workload (WAL mode and sane defaults).
+
+## Installation / Upgrade
+  -  Fully upgrade-safe:
+  -  Existing database and data are preserved.
+  -  Schema updates are applied automatically at startup.
+  -  No manual migration steps required, even from very old versions.
+
+
+
 ## [1.4.0] – 2026-01-06
 
 ### Added

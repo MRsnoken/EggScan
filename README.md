@@ -133,6 +133,12 @@ EggScan is **not** intended for:
 - Accurate handling of devices present in multiple subnets
 - Subnet display reflects actual scan results (no guessed or historical placement)
 - Upgrade-safe installer with automatic database schema checks
+Optional Discord alerts for:
+  - New devices
+  - Devices appearing in new subnets
+  - Offline / back-online events
+  - Separated scan worker and web UI for improved stability
+  - Production-ready web serving via Gunicorn (systemd)
 
 </details>
 
@@ -264,7 +270,7 @@ For remote access, EggScan must be placed behind:
 
 Planned or considered improvements:
 
-- Optional notification hooks (Discord / generic webhooks)
+“Additional notification targets beyond Discord”
 - Improved device history and presence tracking
 - UI refinements and accessibility improvements
 

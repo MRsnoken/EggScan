@@ -1,12 +1,19 @@
+from __future__ import annotations
 import threading
 import time
 import ipaddress
 import uuid
+from typing import Optional, Tuple
 import datetime
+from zoneinfo import ZoneInfo, available_timezones
 import subprocess
 import os
 import json
 import secrets
+import urllib.request
+import urllib.error
+import argparse
+import tempfile
 
 from flask import (
     Flask, render_template, redirect, url_for, request, flash,
@@ -24,8 +31,11 @@ from flask_login import (
 )
 from flask_bcrypt import Bcrypt
 import nmap
-from sqlalchemy import text
+from sqlalchemy import text, case
 from sqlalchemy.schema import UniqueConstraint
+
+def utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 # ---------------------------
 #   PATHS, VERSION, SECRET
@@ -74,6 +84,7 @@ APP_VERSION = load_version()
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["SECRET_KEY"] = load_or_create_secret_key()
 app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_FILE}"
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"timeout": 5}}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
@@ -81,9 +92,15 @@ bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
+
+
+
+
+
 # ---------------------------
 #         MODELS
 # ---------------------------
+
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -104,9 +121,9 @@ class Device(db.Model):
     mac_address = db.Column(db.String(40), unique=True)
     alias = db.Column(db.String(100), nullable=True)
     manufacturer = db.Column(db.String(100), nullable=True)
-    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
     last_seen_scan = db.Column(db.String(36), nullable=True)
-    last_seen_at = db.Column(db.DateTime, nullable=True)
+    last_seen_at = db.Column(db.DateTime, nullable=True)  # UTC-naive
     is_new = db.Column(db.Boolean, default=False)
     last_subnet_id = db.Column(db.Integer, nullable=True)
 
@@ -119,20 +136,51 @@ class SubNetwork(db.Model):
 
 
 class DeviceSubnetSeen(db.Model):
-    """
-    Loggar vilka subnät en device (Device-id) faktiskt sågs i under en specifik scan_id.
-    Detta gör grouped-läget korrekt för multi-subnet samtidigt.
-    """
     id = db.Column(db.Integer, primary_key=True)
     scan_id = db.Column(db.String(36), nullable=False, index=True)
     device_id = db.Column(db.Integer, nullable=False, index=True)
-    subnet_id = db.Column(db.Integer, nullable=True, index=True)  # kan vara None (t.ex. IPv6 neighbor)
-    seen_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    subnet_id = db.Column(db.Integer, nullable=True, index=True)  # None för IPv6 neighbor
+    seen_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     __table_args__ = (
         UniqueConstraint("scan_id", "device_id", "subnet_id", name="uq_seen_scan_device_subnet"),
     )
 
+
+class DeviceAlert(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
+    enabled = db.Column(db.Boolean, default=True, nullable=False)
+    offline_threshold_minutes = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now
+    )
+
+
+class AlertLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)  # UTC-naive
+
+    alert_type = db.Column(db.String(50), nullable=False)  # offline, online_back, test, new_device, new_device_subnet
+    device_id = db.Column(db.Integer, nullable=True, index=True)
+
+    mac_address = db.Column(db.String(40), nullable=True)
+    device_label = db.Column(db.String(120), nullable=True)
+
+    details_json = db.Column(db.Text, nullable=True)
+
+    sent_to = db.Column(db.String(50), nullable=False, default="discord")
+    status = db.Column(db.String(20), nullable=False, default="sent")  # sent, failed
+    error = db.Column(db.Text, nullable=True)
+
+    dedupe_key = db.Column(db.String(200), nullable=True, unique=True, index=True)
+
+
+from sqlalchemy import text
 
 def ensure_db_schema():
     with app.app_context():
@@ -151,11 +199,35 @@ def ensure_db_schema():
         if not has_column("device", "last_subnet_id"):
             db.session.execute(text("ALTER TABLE device ADD COLUMN last_subnet_id INTEGER;"))
 
+        # ---- FIX FÖR GAMLA DB: last_seen_at saknas i äldre versioner ----
+        if not has_column("device", "last_seen_at"):
+            db.session.execute(text("ALTER TABLE device ADD COLUMN last_seen_at DATETIME;"))
+
+        try:
+            db.session.execute(text("SELECT 1 FROM device_alert LIMIT 1;"))
+        except Exception:
+            db.session.rollback()
+            db.create_all()
+
+        try:
+            db.session.execute(text("SELECT 1 FROM alert_log LIMIT 1;"))
+        except Exception:
+            db.session.rollback()
+            db.create_all()
+
         db.session.commit()
 
-
+def configure_sqlite_for_concurrency():
+    with app.app_context():
+        try:
+            db.session.execute(text("PRAGMA journal_mode=WAL;"))
+            db.session.execute(text("PRAGMA synchronous=NORMAL;"))
+            db.session.execute(text("PRAGMA busy_timeout=5000;"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 ensure_db_schema()
-
+configure_sqlite_for_concurrency()
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -327,7 +399,52 @@ TRANSLATIONS = {
 
         "SUBNET_GROUP_OTHERS": "Övriga",
         "CONFIG_SUBNET_VIEW_MODE_HINT": "Subnät visas bara om minst ett subnät har ett namn.",
+
+        "ALERTS_TITLE": "Larm",
+        "ALERTS_DISCORD_ENABLE": "Aktivera Discord webhook",
+        "ALERTS_DISCORD_WEBHOOK": "Discord webhook URL",
+        "ALERTS_OFFLINE_THRESHOLD": "Larma om offline längre än (minuter)",
+        "ALERTS_SCOPE_LABEL": "Larm-omfattning",
+        "ALERTS_SCOPE_ALL": "Alla enheter",
+        "ALERTS_SCOPE_SELECTED": "Endast valda enheter",
+        "ALERTS_DEVICES_TITLE": "Välj enheter",
+        "ALERTS_FILTER_PLACEHOLDER": "Filtrera på alias/MAC…",
+        "ALERTS_ENABLE_ALL": "Aktivera för alla",
+        "ALERTS_DISABLE_ALL": "Stäng av för alla",
+        "ALERTS_TEST_BUTTON": "Skicka testlarm",
+        "ALERTS_TEST_SENT": "Testlarm skickat!",
+        "ALERTS_TEST_FAIL": "Kunde inte skicka testlarm: {error}",
+
+        "DISPLAY_TIMEZONE_LABEL": "Tidszon (visning)",
+        "DISPLAY_TIMEZONE_HINT": "Lämna tomt för serverns tidszon. Exempel: Europe/Stockholm",
+        "ALERTS_NEW_DEVICE_SUBNET_HINT": "Lämna tomt för att behandla subnäts-larm som “alla subnät”. Om du väljer subnät triggar endast dessa larm för nya enheter.",
+        "ALERTS_SHOW": "Visa",
+        "ALERTS_HIDE": "Dölj",
+        "ALERTS_COL_ON": "På",
+        "THEME_DEFAULT": "Standard",
+        "THEME_DARK": "Mörkt",
+        "THEME_LIGHT": "Ljust",
+        "THEME_COSMOS": "Cosmos",
+        "ALERTS_DISCORD_WEBHOOK_PLACEHOLDER": "https://discord.com/api/webhooks/...",
+        "ALERTS_NEW_DEVICE_TITLE": "Nya enheter (Discord)",
+        "ALERTS_NEW_DEVICE_OFF": "Av",
+        "ALERTS_NEW_DEVICE_GLOBAL": "Globalt (endast helt ny enhet)",
+        "ALERTS_NEW_DEVICE_SUBNETS": "Endast valda subnät",
+        "ALERTS_NEW_DEVICE_BOTH": "Båda (globalt + subnät)",
+        "ALERTS_NEW_DEVICE_HINT": "Globalt triggar bara när en enhet skapas första gången (ny MAC). Subnät triggar bara första gången en enhet syns i ett subnät.",
+        "ALERTS_NEW_DEVICE_SUBNET_PICKER_TITLE": "Subnät som ska trigga subnäts-larm",
+        "DISCORD_NEW_DEVICE_GLOBAL_TITLE": "🆕 EggScan: Ny enhet upptäckt!",
+        "DISCORD_NEW_DEVICE_SUBNET_TITLE": "🆕 EggScan: Ny enhet i subnät!",
+        "DISCORD_LABEL_NAME": "Namn",
+        "DISCORD_LABEL_MAC": "MAC",
+        "DISCORD_LABEL_IP": "IP",
+        "DISCORD_LABEL_SUBNET": "Subnät",
+
+
+        "DISPLAY_TIMEZONE_HINT_UI": "Sparade tider är UTC. Den här inställningen påverkar bara hur tider visas i gränssnittet.",
+        "DISPLAY_TIMEZONE_PLACEHOLDER": "Börja skriva… (t.ex. Europe/Stockholm)",
     },
+
     "en": {
         "LANG_SV": "Swedish",
         "LANG_EN": "English",
@@ -488,6 +605,49 @@ TRANSLATIONS = {
 
         "SUBNET_GROUP_OTHERS": "Others",
         "CONFIG_SUBNET_VIEW_MODE_HINT": "Subnets are only shown if at least one subnet has a name.",
+
+        "ALERTS_TITLE": "Alerts",
+        "ALERTS_DISCORD_ENABLE": "Enable Discord webhook",
+        "ALERTS_DISCORD_WEBHOOK": "Discord webhook URL",
+        "ALERTS_OFFLINE_THRESHOLD": "Alert if offline longer than (minutes)",
+        "ALERTS_SCOPE_LABEL": "Alert scope",
+        "ALERTS_SCOPE_ALL": "All devices",
+        "ALERTS_SCOPE_SELECTED": "Only selected devices",
+        "ALERTS_DEVICES_TITLE": "Select devices",
+        "ALERTS_FILTER_PLACEHOLDER": "Filter by alias/MAC…",
+        "ALERTS_ENABLE_ALL": "Enable for all",
+        "ALERTS_DISABLE_ALL": "Disable for all",
+        "ALERTS_TEST_BUTTON": "Send test alert",
+        "ALERTS_TEST_SENT": "Test alert sent!",
+        "ALERTS_TEST_FAIL": "Could not send test alert: {error}",
+        "ALERTS_NEW_DEVICE_SUBNET_HINT": "Leave empty to treat subnet alerts as “all subnets”. If you select subnets, only those will trigger new-device alerts.",
+        "ALERTS_NEW_DEVICE_TITLE": "New devices (Discord)",
+        "ALERTS_NEW_DEVICE_OFF": "Off",
+        "ALERTS_NEW_DEVICE_GLOBAL": "Global (only brand new device)",
+        "ALERTS_NEW_DEVICE_SUBNETS": "Selected subnets only",
+        "ALERTS_NEW_DEVICE_BOTH": "Both (global + subnets)",
+        "ALERTS_NEW_DEVICE_HINT": "Global triggers only when a device is first created (new MAC). Subnet triggers only the first time a device is seen in that subnet.",
+        "ALERTS_NEW_DEVICE_SUBNET_PICKER_TITLE": "Subnets used for subnet alerts",
+        "ALERTS_SHOW": "Show",
+        "ALERTS_HIDE": "Hide",
+        "ALERTS_COL_ON": "On",
+        "THEME_DEFAULT": "Default",
+        "THEME_DARK": "Dark",
+        "THEME_LIGHT": "Light",
+        "THEME_COSMOS": "Cosmos",
+        "ALERTS_DISCORD_WEBHOOK_PLACEHOLDER": "https://discord.com/api/webhooks/...",
+        "DISCORD_NEW_DEVICE_GLOBAL_TITLE": "🆕 EggScan: New device detected!",
+        "DISCORD_NEW_DEVICE_SUBNET_TITLE": "🆕 EggScan: New device in subnet!",
+        "DISCORD_LABEL_NAME": "Name",
+        "DISCORD_LABEL_MAC": "MAC",
+        "DISCORD_LABEL_IP": "IP",
+        "DISCORD_LABEL_SUBNET": "Subnet",
+
+        "DISPLAY_TIMEZONE_HINT_UI": "Stored timestamps are UTC. This setting only controls how times are shown in the UI.",
+        "DISPLAY_TIMEZONE_PLACEHOLDER": "Start typing… (e.g. Europe/Stockholm)",
+
+        "DISPLAY_TIMEZONE_LABEL": "Timezone (display)",
+        "DISPLAY_TIMEZONE_HINT": "Leave empty for server timezone. Example: Europe/Stockholm",
     },
 }
 
@@ -498,6 +658,11 @@ def get_setting(key, default_value=None):
 
 
 def set_setting(key, value):
+    try:
+        db.session.execute(text("PRAGMA busy_timeout=5000;"))
+    except Exception:
+        pass
+
     s = Settings.query.filter_by(key=key).first()
     if not s:
         s = Settings(key=key, value=value)
@@ -505,6 +670,48 @@ def set_setting(key, value):
     else:
         s.value = value
     db.session.commit()
+
+def set_settings_bulk(pairs: dict[str, str]) -> None:
+    if not pairs:
+        return
+
+    with app.app_context():
+        try:
+            db.session.execute(text("BEGIN IMMEDIATE;"))
+            for k, v in pairs.items():
+                db.session.execute(
+                    text("""
+                        INSERT INTO settings (key, value)
+                        VALUES (:k, :v)
+                        ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+                    """),
+                    {"k": str(k), "v": str(v)}
+                )
+            db.session.commit()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+def get_bool_setting(key, default=False):
+    v = get_setting(key, "true" if default else "false")
+    return str(v).strip().lower() == "true"
+
+
+def get_int_setting(key, default_value):
+    v = str(get_setting(key, str(default_value))).strip()
+    try:
+        return int(v)
+    except Exception:
+        return int(default_value)
+
+
+def get_alert_scope():
+    scope = str(get_setting("alert_scope", "all")).strip().lower()
+    if scope not in ("all", "selected"):
+        scope = "all"
+    return scope
 
 
 def get_language():
@@ -527,11 +734,99 @@ def get_theme():
 
 
 def get_subnet_view_mode():
-    mode = get_setting("subnet_view_mode", "column").strip().lower()
+    mode = str(get_setting("subnet_view_mode", "column")).strip().lower()
     if mode not in ("column", "grouped"):
         mode = "column"
     return mode
 
+
+def detect_os_timezone_name() -> str:
+    tz = None
+
+    
+    try:
+        r = subprocess.run(
+            ["timedatectl", "show", "-p", "Timezone", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if r.returncode == 0:
+            v = (r.stdout or "").strip()
+            if v:
+                tz = v
+    except Exception:
+        tz = None
+
+    
+    if not tz:
+        try:
+            if os.path.exists("/etc/timezone"):
+                with open("/etc/timezone", "r", encoding="utf-8") as f:
+                    v = f.read().strip()
+                    if v:
+                        tz = v
+        except Exception:
+            tz = None
+
+    
+    if not tz:
+        try:
+            if os.path.exists("/etc/localtime"):
+                target = os.path.realpath("/etc/localtime")
+                marker = "/usr/share/zoneinfo/"
+                if marker in target:
+                    v = target.split(marker, 1)[1].strip()
+                    if v:
+                        tz = v
+        except Exception:
+            tz = None
+
+    if not tz:
+        tz = "UTC"
+
+    try:
+        ZoneInfo(tz)
+        return tz
+    except Exception:
+        return "UTC"
+
+
+def get_display_timezone() -> str:
+    chosen = str(get_setting("display_timezone", "")).strip()
+    if chosen:
+        try:
+            ZoneInfo(chosen)
+            return chosen
+        except Exception:
+            pass
+    return detect_os_timezone_name()
+
+
+
+
+
+def ensure_utc(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc)
+
+
+def format_local(dt_value: Optional[datetime.datetime], tz_name: str) -> str:
+    if not isinstance(dt_value, datetime.datetime):
+        return "-"
+
+
+    dt_utc = dt_value.replace(tzinfo=datetime.timezone.utc)
+
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+
+    return dt_utc.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 def t(key):
     lang = get_language()
@@ -549,6 +844,154 @@ def tf(key, **kwargs):
 # ---------------------------
 #   HELPERS
 # ---------------------------
+
+SCAN_LOCK_KEY = "scan_lock_token"
+SCAN_LOCK_UNTIL_KEY = "scan_lock_until_utc"
+SCAN_REQUEST_KEY = "scan_requested"
+SCAN_REQUEST_ID_KEY = "scan_request_id"
+SCAN_REQUEST_AT_KEY = "scan_request_at_utc"
+
+
+def _iso_utc(dt: datetime.datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    dt = dt.astimezone(datetime.timezone.utc)
+    return dt.replace(tzinfo=None, microsecond=0).isoformat()
+
+
+def _parse_iso(dt_str: str) -> Optional[datetime.datetime]:
+    dt_str = (dt_str or "").strip()
+    if not dt_str:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(dt_str)
+    except Exception:
+        return None
+
+
+def request_scan_now() -> str:
+    rid = str(uuid.uuid4())
+    set_setting(SCAN_REQUEST_KEY, "true")
+    set_setting(SCAN_REQUEST_ID_KEY, rid)
+    set_setting(SCAN_REQUEST_AT_KEY, _iso_utc(utc_now()))
+    return rid
+
+
+def clear_scan_request_if_matches(request_id: str) -> None:
+    current = str(get_setting(SCAN_REQUEST_ID_KEY, "")).strip()
+    if current and current == request_id:
+        set_setting(SCAN_REQUEST_KEY, "false")
+
+
+def is_scan_requested() -> Tuple[bool, str]:
+    requested = str(get_setting(SCAN_REQUEST_KEY, "false")).strip().lower() == "true"
+    rid = str(get_setting(SCAN_REQUEST_ID_KEY, "")).strip()
+    return requested, rid
+
+
+def acquire_scan_lock(ttl_seconds: int = 3600) -> Optional[str]:
+    """
+    Atomiskt DB-lås (SQLite) som funkar även om scan-worker råkar starta två gånger.
+    Viktigt: INGA set_setting() här eftersom set_setting() committar.
+    """
+    token = str(uuid.uuid4())
+    now = utc_now()
+    until = now + datetime.timedelta(seconds=int(ttl_seconds))
+
+    now_iso = _iso_utc(now)
+    until_iso = _iso_utc(until)
+
+    with app.app_context():
+        try:
+            db.session.execute(text("BEGIN IMMEDIATE;"))
+
+            rows = db.session.execute(
+                text("SELECT key, value FROM settings WHERE key IN (:k1, :k2);"),
+                {"k1": SCAN_LOCK_KEY, "k2": SCAN_LOCK_UNTIL_KEY}
+            ).fetchall()
+
+            cur = {r[0]: (r[1] or "") for r in rows}
+            cur_token = (cur.get(SCAN_LOCK_KEY, "") or "").strip()
+            cur_until_str = (cur.get(SCAN_LOCK_UNTIL_KEY, "") or "").strip()
+            cur_until = _parse_iso(cur_until_str)
+
+            if cur_until and cur_until > now and cur_token:
+                db.session.rollback()
+                return None
+
+            # UPSERT token
+            db.session.execute(
+                text("""
+                    INSERT INTO settings (key, value)
+                    VALUES (:k, :v)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+                """),
+                {"k": SCAN_LOCK_KEY, "v": token}
+            )
+
+            # UPSERT until
+            db.session.execute(
+                text("""
+                    INSERT INTO settings (key, value)
+                    VALUES (:k, :v)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+                """),
+                {"k": SCAN_LOCK_UNTIL_KEY, "v": until_iso}
+            )
+
+            db.session.commit()
+            return token
+
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            return None
+
+
+def release_scan_lock(token: str) -> None:
+    token = (token or "").strip()
+    if not token:
+        return
+
+    with app.app_context():
+        try:
+            db.session.execute(text("BEGIN IMMEDIATE;"))
+
+            row = db.session.execute(
+                text("SELECT value FROM settings WHERE key=:k LIMIT 1;"),
+                {"k": SCAN_LOCK_KEY}
+            ).fetchone()
+
+            cur_token = (row[0] if row and row[0] else "").strip()
+
+            if cur_token == token:
+                db.session.execute(
+                    text("""
+                        INSERT INTO settings (key, value)
+                        VALUES (:k, :v)
+                        ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+                    """),
+                    {"k": SCAN_LOCK_KEY, "v": ""}
+                )
+                db.session.execute(
+                    text("""
+                        INSERT INTO settings (key, value)
+                        VALUES (:k, :v)
+                        ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+                    """),
+                    {"k": SCAN_LOCK_UNTIL_KEY, "v": ""}
+                )
+
+            db.session.commit()
+
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
 
 def guess_network_range():
     try:
@@ -575,7 +1018,7 @@ def guess_network_range():
 
 def discover_ipv6_neighbors():
     mac_to_v6 = {}
-    ipv6_utils = get_setting("ipv6_utils", "").strip()
+    ipv6_utils = str(get_setting("ipv6_utils", "")).strip()
 
     if ipv6_utils:
         ping_cmd = ["ping", "-6", "-I", ipv6_utils, "ff02::1", "-c", "3"]
@@ -605,62 +1048,548 @@ def discover_ipv6_neighbors():
     return mac_to_v6
 
 
-def nmap_scan_and_save():
-    subnets = SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all()
-    if not subnets:
-        set_setting("scan_status", "done")
-        return
+def send_discord_webhook(webhook_url: str, content: str) -> None:
+    webhook_url = (webhook_url or "").strip()
+    if not webhook_url:
+        raise Exception("Missing webhook URL")
 
-    set_setting("scan_status", "running")
-    current_scan_id = str(uuid.uuid4())
-    set_setting("last_scan_id", current_scan_id)
+    payload_obj = {"content": content}
+    payload = json.dumps(payload_obj).encode("utf-8")
 
-    nm = nmap.PortScanner()
-    existing_devices = {d.mac_address.lower(): d for d in Device.query.all()}
-    ipv6_enabled = (get_setting("ipv6_enabled", "false") == "true")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "EggScan/1.0 (+local)",
+        "Accept": "application/json",
+    }
 
-    scan_ips_per_mac = {}
-    seen_pairs = set()  # (device_id, subnet_id) för current_scan_id
+    req = urllib.request.Request(
+        webhook_url,
+        data=payload,
+        headers=headers,
+        method="POST"
+    )
 
     try:
-        DeviceSubnetSeen.query.filter_by(scan_id=current_scan_id).delete()
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            _ = resp.read()
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        raise Exception(f"HTTP {e.code} {e.reason} | body={body}") from None
+    except urllib.error.URLError as e:
+        raise Exception(f"URL error: {e}") from None
 
-    for sn in subnets:
-        cidr = sn.cidr.strip()
-        if not cidr:
+
+def device_display_name(dev: Device) -> str:
+    if dev.alias and dev.alias.strip():
+        return dev.alias.strip()
+    if dev.mac_address and dev.mac_address.strip():
+        return dev.mac_address.strip()
+    return f"Device {dev.id}"
+
+
+def get_alert_scope_all_or_selected() -> str:
+    return get_alert_scope()
+
+
+def get_new_device_alert_mode() -> str:
+    mode = str(get_setting("new_device_alert_mode", "both")).strip().lower()
+    if mode not in ("off", "global", "subnets", "both"):
+        mode = "both"
+    return mode
+
+
+def get_new_device_alert_subnet_ids() -> set[int]:
+    raw = str(get_setting("new_device_alert_subnets", "")).strip()
+    if not raw:
+        return set()
+    out = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
             continue
         try:
-            network = ipaddress.ip_network(cidr, strict=False)
-            if network.version != 4:
+            out.add(int(part))
+        except Exception:
+            pass
+    return out
+
+
+def is_device_alert_enabled(dev: Device) -> bool:
+    scope = get_alert_scope_all_or_selected()
+    if scope == "all":
+        return True
+
+    row = DeviceAlert.query.filter_by(device_id=dev.id).first()
+    return bool(row and row.enabled)
+
+
+def get_device_threshold_minutes(dev: Device, default_minutes: int) -> int:
+    row = DeviceAlert.query.filter_by(device_id=dev.id).first()
+    if row and row.enabled and row.offline_threshold_minutes is not None:
+        try:
+            v = int(row.offline_threshold_minutes)
+            return v if v > 0 else default_minutes
+        except Exception:
+            return default_minutes
+    return default_minutes
+
+
+def make_offline_dedupe_key(dev: Device) -> str:
+    if dev.last_seen_at:
+        ts = dev.last_seen_at.replace(microsecond=0).isoformat()
+    else:
+        ts = "unknown"
+    return f"offline:{dev.id}:{ts}"
+
+
+def make_online_recovery_dedupe_key(dev: Device, offline_dedupe_key: str) -> str:
+    return f"online_back:{dev.id}:{offline_dedupe_key or 'unknown'}"
+
+
+def make_new_device_dedupe_key(mac_lower: str) -> str:
+    return f"new_device:{mac_lower}"
+
+
+def make_new_device_subnet_dedupe_key(mac_lower: str, subnet_id: int) -> str:
+    return f"new_device_subnet:{mac_lower}:{subnet_id}"
+
+
+def log_alert(
+    alert_type: str,
+    sent_to: str,
+    status: str,
+    device: Device = None,
+    details: dict = None,
+    error: str = None,
+    dedupe_key: str = None
+):
+    mac = None
+    label = None
+    did = None
+
+    if device:
+        did = device.id
+        mac = (device.mac_address or "").strip().lower() if device.mac_address else None
+        label = device_display_name(device)
+
+    row = AlertLog(
+        alert_type=alert_type,
+        device_id=did,
+        mac_address=mac,
+        device_label=label,
+        details_json=json.dumps(details or {}, ensure_ascii=False),
+        sent_to=sent_to,
+        status=status,
+        error=error,
+        dedupe_key=dedupe_key
+    )
+    db.session.add(row)
+    db.session.commit()
+
+
+def send_new_device_alert_if_enabled(dev: Device, subnet: Optional[SubNetwork]):
+    discord_enabled = get_bool_setting("discord_enabled", default=False)
+    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
+    if not discord_enabled or not webhook_url:
+        return
+
+    mode = get_new_device_alert_mode()
+    if mode == "off":
+        return
+
+    mac_lower = (dev.mac_address or "").strip().lower()
+    if not mac_lower:
+        return
+
+    now_utc = utc_now()
+
+    # ---------- GLOBAL ----------
+    if mode in ("global", "both"):
+        dedupe_key = make_new_device_dedupe_key(mac_lower)
+
+        already = AlertLog.query.filter_by(dedupe_key=dedupe_key).first()
+        if not (already and already.status == "sent"):
+            subnet_label = "-"
+            subnet_cidr = "-"
+            if subnet:
+                subnet_cidr = subnet.cidr or "-"
+                subnet_label = (subnet.label.strip() if subnet.label and subnet.label.strip() else "-")
+            msg = (
+                f"{t('DISCORD_NEW_DEVICE_GLOBAL_TITLE')}\n"
+                f"{t('DISCORD_LABEL_NAME')}: {device_display_name(dev)}\n"
+                f"{t('DISCORD_LABEL_MAC')}: {mac_lower}\n"
+                f"{t('DISCORD_LABEL_IP')}: {dev.ip_address or '-'}\n"
+                f"{t('DISCORD_LABEL_SUBNET')}: {subnet_label} ({subnet_cidr})"
+)
+           
+            
+
+            details = {
+                "device_id": dev.id,
+                "alias": dev.alias,
+                "mac": mac_lower,
+                "ip": dev.ip_address,
+                "first_seen_at_utc": (dev.last_seen_at.replace(microsecond=0).isoformat() if dev.last_seen_at else None),
+                "subnet_id": (subnet.id if subnet else None),
+                "subnet_label": subnet_label,
+                "subnet_cidr": subnet_cidr,
+                "mode": mode,
+                "created_at_utc": now_utc.replace(microsecond=0).isoformat(),
+            }
+
+            try:
+                send_discord_webhook(webhook_url, msg)
+                log_alert("new_device", "discord", "sent", device=dev, details=details, dedupe_key=dedupe_key)
+            except Exception as e:
+                err = str(e)
+                try:
+                    log_alert("new_device", "discord", "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
+                except Exception:
+                    db.session.rollback()
+
+    # ---------- SUBNET ----------
+    if mode in ("subnets", "both"):
+        if not subnet:
+            return
+
+        allowed = get_new_device_alert_subnet_ids()
+        if allowed and subnet.id not in allowed:
+            return
+
+        dedupe_key = make_new_device_subnet_dedupe_key(mac_lower, subnet.id)
+
+        already = AlertLog.query.filter_by(dedupe_key=dedupe_key).first()
+        if already and already.status == "sent":
+            return
+
+        subnet_label = (subnet.label.strip() if subnet.label and subnet.label.strip() else subnet.cidr)
+
+        msg = (
+            f"{t('DISCORD_NEW_DEVICE_SUBNET_TITLE')}\n"
+            f"{t('DISCORD_LABEL_SUBNET')}: {subnet_label}\n"
+            f"{t('DISCORD_LABEL_NAME')}: {device_display_name(dev)}\n"
+            f"{t('DISCORD_LABEL_MAC')}: {mac_lower}\n"
+            f"{t('DISCORD_LABEL_IP')}: {dev.ip_address or '-'}"
+        )       
+
+        details = {
+            "device_id": dev.id,
+            "alias": dev.alias,
+            "mac": mac_lower,
+            "ip": dev.ip_address,
+            "subnet_id": subnet.id,
+            "subnet_label": (subnet.label.strip() if subnet.label and subnet.label.strip() else None),
+            "subnet_cidr": subnet.cidr,
+            "mode": mode,
+            "created_at_utc": now_utc.replace(microsecond=0).isoformat(),
+        }
+
+        try:
+            send_discord_webhook(webhook_url, msg)
+            log_alert("new_device_subnet", "discord", "sent", device=dev, details=details, dedupe_key=dedupe_key)
+        except Exception as e:
+            err = str(e)
+            try:
+                log_alert("new_device_subnet", "discord", "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
+            except Exception:
+                db.session.rollback()
+
+
+def evaluate_offline_alerts(current_scan_id: str):
+    discord_enabled = get_bool_setting("discord_enabled", default=False)
+    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
+    if not discord_enabled or not webhook_url:
+        return
+
+    default_threshold = get_int_setting("offline_threshold_minutes", 60)
+    if default_threshold <= 0:
+        default_threshold = 60
+
+    now_utc = utc_now()
+    offline_devices = Device.query.filter(Device.last_seen_scan != current_scan_id).all()
+
+    for dev in offline_devices:
+        if not dev.last_seen_at:
+            continue
+        if not is_device_alert_enabled(dev):
+            continue
+
+        threshold = get_device_threshold_minutes(dev, default_threshold)
+        if threshold <= 0:
+            threshold = default_threshold
+
+        offline_for = now_utc - dev.last_seen_at
+        offline_minutes = int(offline_for.total_seconds() // 60)
+
+        if offline_minutes < threshold:
+            continue
+
+        dedupe_key = make_offline_dedupe_key(dev)
+
+        already = AlertLog.query.filter_by(dedupe_key=dedupe_key).first()
+        if already and already.status == "sent":
+            continue
+
+        msg = f"🔴 EggScan alert: {device_display_name(dev)} is offline "
+
+        details = {
+            "device_id": dev.id,
+            "alias": dev.alias,
+            "mac": dev.mac_address,
+            "ip": dev.ip_address,
+            "last_seen_at_utc": dev.last_seen_at.replace(microsecond=0).isoformat() if dev.last_seen_at else None,
+            "offline_minutes": offline_minutes,
+            "threshold_minutes": threshold
+        }
+
+        try:
+            send_discord_webhook(webhook_url, msg)
+            log_alert("offline", "discord", "sent", device=dev, details=details, dedupe_key=dedupe_key)
+        except Exception as e:
+            err = str(e)
+            try:
+                log_alert("offline", "discord", "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
+            except Exception:
+                db.session.rollback()
+
+
+def evaluate_online_recovery_alerts(current_scan_id: str):
+    discord_enabled = get_bool_setting("discord_enabled", default=False)
+    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
+    if not discord_enabled or not webhook_url:
+        return
+
+    now_utc = utc_now()
+    online_devices = Device.query.filter(Device.last_seen_scan == current_scan_id).all()
+
+    for dev in online_devices:
+        if not is_device_alert_enabled(dev):
+            continue
+
+        last_offline = (
+            AlertLog.query
+            .filter_by(alert_type="offline", device_id=dev.id, status="sent")
+            .order_by(AlertLog.created_at.desc())
+            .first()
+        )
+        if not last_offline:
+            continue
+
+        offline_dedupe_key = last_offline.dedupe_key or ""
+        online_dedupe_key = make_online_recovery_dedupe_key(dev, offline_dedupe_key)
+
+        already = AlertLog.query.filter_by(dedupe_key=online_dedupe_key).first()
+        if already and already.status == "sent":
+            continue
+
+        offline_start = None
+        try:
+            parts = offline_dedupe_key.split(":", 2)
+            if len(parts) == 3:
+                offline_start_str = parts[2]
+                if offline_start_str != "unknown":
+                    offline_start = datetime.datetime.fromisoformat(offline_start_str)
+        except Exception:
+            offline_start = None
+
+        if offline_start is None:
+            offline_start = last_offline.created_at
+
+        offline_seconds = int((now_utc - offline_start).total_seconds())
+        if offline_seconds < 0:
+            offline_seconds = 0
+        offline_minutes = offline_seconds // 60
+
+        msg = f"🟢 EggScan alert: {device_display_name(dev)} is back online "
+
+        details = {
+            "device_id": dev.id,
+            "alias": dev.alias,
+            "mac": dev.mac_address,
+            "ip": dev.ip_address,
+            "back_online_at_utc": now_utc.replace(microsecond=0).isoformat(),
+            "offline_start_utc": offline_start.replace(microsecond=0).isoformat() if offline_start else None,
+            "offline_minutes_estimated": offline_minutes,
+            "linked_offline_dedupe_key": offline_dedupe_key,
+        }
+
+        try:
+            send_discord_webhook(webhook_url, msg)
+            log_alert(
+                "online_back",
+                "discord",
+                "sent",
+                device=dev,
+                details=details,
+                dedupe_key=online_dedupe_key
+            )
+        except Exception as e:
+            err = str(e)
+            try:
+                log_alert(
+                    "online_back",
+                    "discord",
+                    "failed",
+                    device=dev,
+                    details=details,
+                    error=err,
+                    dedupe_key=online_dedupe_key
+                )
+            except Exception:
+                db.session.rollback()
+
+
+def nmap_scan_and_save():
+    with app.app_context():
+        subnets = SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all()
+
+        if not subnets:
+            set_settings_bulk({
+                "scan_status": "done",
+            })
+            return
+
+        current_scan_id = str(uuid.uuid4())
+        set_settings_bulk({
+            "scan_status": "running",
+            "last_scan_id": current_scan_id,
+        })
+
+        try:
+            nm = nmap.PortScanner()
+        except Exception as e:
+            print("Nmap init error:", e)
+            set_settings_bulk({
+                "scan_status": "done",
+            })
+            return
+
+        existing_devices = {((d.mac_address or "").lower()): d for d in Device.query.all() if d.mac_address}
+        ipv6_enabled = (get_setting("ipv6_enabled", "false") == "true")
+
+        scan_ips_per_mac: dict[str, set[str]] = {}
+        seen_pairs: set[Tuple[int, Optional[int]]] = set()
+
+        try:
+            DeviceSubnetSeen.query.filter_by(scan_id=current_scan_id).delete()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        for sn in subnets:
+            cidr = str(sn.cidr or "").strip()
+            if not cidr:
                 continue
 
-            scan_output = nm.scan(hosts=cidr, arguments="-sn")
-            for host, info in scan_output.get("scan", {}).items():
-                mac = info.get("addresses", {}).get("mac", None)
+            try:
+                network = ipaddress.ip_network(cidr, strict=False)
+                if network.version != 4:
+                    continue
+            except Exception as e:
+                print(f"Invalid CIDR {cidr}: {e}")
+                continue
+
+            try:
+                scan_output = nm.scan(hosts=cidr, arguments="-sn")
+                scan_map = scan_output.get("scan", {}) or {}
+            except Exception as e:
+                print(f"Scan error for {cidr}: {e}")
+                continue
+
+            for host, info in scan_map.items():
+                mac = (info.get("addresses", {}) or {}).get("mac", None)
                 if not mac:
                     continue
 
                 mac_lower = mac.lower()
-                manufacturer = info.get("vendor", {}).get(mac, None)
+                manufacturer = (info.get("vendor", {}) or {}).get(mac, None)
 
                 scan_ips_per_mac.setdefault(mac_lower, set()).add(host)
 
+                is_created_now = False
                 if mac_lower in existing_devices:
                     dev = existing_devices[mac_lower]
                     if manufacturer:
                         dev.manufacturer = manufacturer
                     dev.last_seen_scan = current_scan_id
-                    dev.last_seen_at = datetime.datetime.now()
+                    dev.last_seen_at = utc_now()
                 else:
                     dev = Device(
                         ip_address=host,
-                        mac_address=mac,
+                        mac_address=mac_lower,
                         manufacturer=manufacturer,
                         last_seen_scan=current_scan_id,
-                        last_seen_at=datetime.datetime.now(),
+                        last_seen_at=utc_now(),
+                        is_new=True,
+                        last_subnet_id=None
+                    )
+                    db.session.add(dev)
+                    db.session.flush()
+                    existing_devices[mac_lower] = dev
+                    is_created_now = True
+
+                dev.last_subnet_id = sn.id
+
+                pair = (dev.id, sn.id)
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+
+                    existed_before = (
+                        db.session.query(DeviceSubnetSeen.id)
+                        .filter(DeviceSubnetSeen.device_id == dev.id, DeviceSubnetSeen.subnet_id == sn.id)
+                        .first()
+                        is not None
+                    )
+
+                    db.session.add(DeviceSubnetSeen(
+                        scan_id=current_scan_id,
+                        device_id=dev.id,
+                        subnet_id=sn.id,
+                        seen_at=utc_now()
+                    ))
+
+                    if is_created_now:
+                        try:
+                            send_new_device_alert_if_enabled(dev, sn)
+                        except Exception as e:
+                            print("New device alert error:", e)
+                    elif not existed_before:
+                        try:
+                            send_new_device_alert_if_enabled(dev, sn)
+                        except Exception as e:
+                            print("New subnet device alert error:", e)
+
+            try:
+                db.session.commit()
+            except Exception as e:
+                print("DB commit error after subnet scan:", e)
+                db.session.rollback()
+
+        if ipv6_enabled:
+            v6_map = discover_ipv6_neighbors()
+            for mac_lower, ipv6_list in v6_map.items():
+                if not ipv6_list:
+                    continue
+
+                scan_ips_per_mac.setdefault(mac_lower, set())
+                for ip6 in ipv6_list:
+                    scan_ips_per_mac[mac_lower].add(ip6)
+
+                if mac_lower in existing_devices:
+                    dev = existing_devices[mac_lower]
+                    dev.last_seen_scan = current_scan_id
+                    dev.last_seen_at = utc_now()
+                else:
+                    dev = Device(
+                        ip_address=",".join(ipv6_list),
+                        mac_address=mac_lower,
+                        manufacturer=None,
+                        last_seen_scan=current_scan_id,
+                        last_seen_at=utc_now(),
                         is_new=True,
                         last_subnet_id=None
                     )
@@ -668,125 +1597,152 @@ def nmap_scan_and_save():
                     db.session.flush()
                     existing_devices[mac_lower] = dev
 
-                dev.last_subnet_id = sn.id
+                    try:
+                        send_new_device_alert_if_enabled(dev, None)
+                    except Exception as e:
+                        print("New device (ipv6) alert error:", e)
 
-                pair = (dev.id, sn.id)
+                pair = (dev.id, None)
                 if pair not in seen_pairs:
                     seen_pairs.add(pair)
                     db.session.add(DeviceSubnetSeen(
                         scan_id=current_scan_id,
                         device_id=dev.id,
-                        subnet_id=sn.id,
-                        seen_at=datetime.datetime.utcnow()
+                        subnet_id=None,
+                        seen_at=utc_now()
                     ))
 
+            try:
+                db.session.commit()
+            except Exception as e:
+                print("DB commit error after ipv6:", e)
+                db.session.rollback()
+
+        for mac_lower, dev in existing_devices.items():
+            if dev.last_seen_scan == current_scan_id:
+                addr_set = scan_ips_per_mac.get(mac_lower, set())
+                if addr_set:
+                    addr_list = sorted(addr_set)
+
+                    ipv4_addrs = []
+                    ipv6_addrs = []
+                    for addr in addr_list:
+                        try:
+                            ip_obj = ipaddress.ip_address(addr)
+                            if ip_obj.version == 4:
+                                ipv4_addrs.append(addr)
+                            else:
+                                ipv6_addrs.append(addr)
+                        except ValueError:
+                            continue
+
+                    ordered = ipv4_addrs + ipv6_addrs
+                    dev.ip_address = ",".join(ordered) if ordered else "-"
+                else:
+                    dev.ip_address = "-"
+
+        try:
+            db.session.commit()
         except Exception as e:
-            print(f"Scan error for {cidr}: {e}")
+            print("DB commit error updating ip list:", e)
+            db.session.rollback()
 
-    db.session.commit()
+        offline_devs = Device.query.filter(Device.last_seen_scan != current_scan_id).all()
+        for d in offline_devs:
+            d.ip_address = "-"
 
-    if ipv6_enabled:
-        v6_map = discover_ipv6_neighbors()
-        for mac_lower, ipv6_list in v6_map.items():
-            if not ipv6_list:
-                continue
+        try:
+            db.session.commit()
+        except Exception as e:
+            print("DB commit error setting offline ip '-':", e)
+            db.session.rollback()
 
-            scan_ips_per_mac.setdefault(mac_lower, set())
-            for ip6 in ipv6_list:
-                scan_ips_per_mac[mac_lower].add(ip6)
+        if not ipv6_enabled:
+            all_devs = Device.query.all()
+            for d in all_devs:
+                if d.ip_address and d.ip_address != "-":
+                    addresses = [x.strip() for x in d.ip_address.split(",") if x.strip()]
+                    keep_only_v4 = []
+                    for addr in addresses:
+                        try:
+                            ip_obj = ipaddress.ip_address(addr)
+                            if ip_obj.version == 4:
+                                keep_only_v4.append(addr)
+                        except Exception:
+                            pass
+                    d.ip_address = ",".join(keep_only_v4) if keep_only_v4 else "-"
+            try:
+                db.session.commit()
+            except Exception as e:
+                print("DB commit error stripping ipv6:", e)
+                db.session.rollback()
 
-            if mac_lower in existing_devices:
-                dev = existing_devices[mac_lower]
-                dev.last_seen_scan = current_scan_id
-                dev.last_seen_at = datetime.datetime.now()
-            else:
-                dev = Device(
-                    ip_address=",".join(ipv6_list),
-                    mac_address=mac_lower,
-                    manufacturer=None,
-                    last_seen_scan=current_scan_id,
-                    last_seen_at=datetime.datetime.now(),
-                    is_new=True,
-                    last_subnet_id=None
-                )
-                db.session.add(dev)
-                db.session.flush()
-                existing_devices[mac_lower] = dev
+       
 
-            pair = (dev.id, None)
-            if pair not in seen_pairs:
-                seen_pairs.add(pair)
-                db.session.add(DeviceSubnetSeen(
-                    scan_id=current_scan_id,
-                    device_id=dev.id,
-                    subnet_id=None,
-                    seen_at=datetime.datetime.utcnow()
-                ))
+        try:
+            evaluate_offline_alerts(current_scan_id)
+            evaluate_online_recovery_alerts(current_scan_id)
+        except Exception as e:
+            print("Alert evaluation error:", e)
+        finally:
+            set_settings_bulk({
+                "last_scan_time_utc": utc_now().replace(microsecond=0).isoformat(),
+                "scan_status": "done",
+            })
 
-        db.session.commit()
+def run_scan_worker():
+    """
+    EN process ska köra detta (systemd eggscan-scan).
+    - Periodisk scan enligt scan_interval
+    - Scan-now requests från webben via Settings-flagga
+    - Aldrig parallella scans (DB-lås)
+    """
+    next_run = utc_now()
 
-    for mac_lower, dev in existing_devices.items():
-        if dev.last_seen_scan == current_scan_id:
-            addr_set = scan_ips_per_mac.get(mac_lower, set())
-            if addr_set:
-                addr_list = sorted(addr_set)
-
-                ipv4_addrs = []
-                ipv6_addrs = []
-                for addr in addr_list:
-                    try:
-                        ip_obj = ipaddress.ip_address(addr)
-                        if ip_obj.version == 4:
-                            ipv4_addrs.append(addr)
-                        else:
-                            ipv6_addrs.append(addr)
-                    except ValueError:
-                        continue
-
-                ordered = ipv4_addrs + ipv6_addrs
-                dev.ip_address = ",".join(ordered) if ordered else "-"
-            else:
-                dev.ip_address = "-"
-    db.session.commit()
-
-    offline_devs = Device.query.filter(Device.last_seen_scan != current_scan_id).all()
-    for d in offline_devs:
-        d.ip_address = "-"
-    db.session.commit()
-
-    if not ipv6_enabled:
-        all_devs = Device.query.all()
-        for d in all_devs:
-            if d.ip_address and d.ip_address != "-":
-                addresses = [x.strip() for x in d.ip_address.split(",")]
-                keep_only_v4 = []
-                for addr in addresses:
-                    try:
-                        ip_obj = ipaddress.ip_address(addr)
-                        if ip_obj.version == 4:
-                            keep_only_v4.append(addr)
-                    except Exception:
-                        pass
-                d.ip_address = ",".join(keep_only_v4) if keep_only_v4 else "-"
-        db.session.commit()
-
-    set_setting("last_scan_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    set_setting("scan_status", "done")
-
-
-def run_periodic_scan():
     while True:
         with app.app_context():
-            interval_str = get_setting("scan_interval", "5")
+            interval_str = str(get_setting("scan_interval", "5")).strip()
             try:
                 interval_minutes = int(interval_str)
             except Exception:
                 interval_minutes = 5
+            if interval_minutes <= 0:
+                interval_minutes = 5
 
             set_setting("scan_interval_active", str(interval_minutes))
-            nmap_scan_and_save()
 
-        time.sleep(interval_minutes * 60)
+            now = utc_now()
+            requested, req_id = is_scan_requested()
+            due = (now >= next_run)
+
+            if not requested and not due:
+                pass
+            else:
+                lock_token = acquire_scan_lock(ttl_seconds=max(60, interval_minutes * 60 + 600))
+                if not lock_token:
+                    # Någon annan scan pågår (eller låset sitter kvar). Vänta lite.
+                    time.sleep(1)
+                    continue
+
+                try:
+                    my_req_id = req_id if requested else ""
+
+                    nmap_scan_and_save()
+
+                    # Rensa request om den fortfarande är samma
+                    if my_req_id:
+                        clear_scan_request_if_matches(my_req_id)
+
+                    # Nästa periodiska körning räknas från nu
+                    next_run = utc_now() + datetime.timedelta(minutes=interval_minutes)
+
+                finally:
+                    try:
+                        release_scan_lock(lock_token)
+                    except Exception:
+                        pass
+
+        time.sleep(1)
 
 
 @app.context_processor
@@ -805,6 +1761,7 @@ def inject_globals():
         "version": APP_VERSION,
         "theme": theme_value,
     }
+
 
 # ---------------------------
 #          ROUTES
@@ -977,6 +1934,10 @@ def index():
             return none_str(d.manufacturer).lower()
         if sort_field == "updated":
             return updated_key(d)
+        if sort_field == "subnet":
+            if d.last_subnet_id and d.last_subnet_id in subnet_map:
+                return (subnet_map[d.last_subnet_id] or "").lower()
+            return ""
         return ip_sort_tuple(d)
 
     is_grouped_active = (
@@ -1028,7 +1989,7 @@ def index():
             others.sort(key=device_key_for_sort, reverse=reverse_rows)
             device_groups.append({"title": t("SUBNET_GROUP_OTHERS"), "devices": others})
 
-    if sort_field == "subnet":
+    if sort_field == "subnet" and not is_grouped_active:
         def subnet_label_for_device(dev: Device) -> str:
             if dev.last_subnet_id and dev.last_subnet_id in subnet_map:
                 return subnet_map[dev.last_subnet_id] or ""
@@ -1044,23 +2005,24 @@ def index():
 
     elif is_grouped_active:
         pass
-
     else:
-        if sort_field == "ip":
-            devices.sort(key=ip_sort_tuple, reverse=(sort_dir == "desc"))
-        elif sort_field == "mac":
-            devices.sort(key=lambda d: none_str(d.mac_address).lower(), reverse=(sort_dir == "desc"))
-        elif sort_field == "alias":
-            devices.sort(key=lambda d: none_str(d.alias).lower(), reverse=(sort_dir == "desc"))
-        elif sort_field == "manufacturer":
-            devices.sort(key=lambda d: none_str(d.manufacturer).lower(), reverse=(sort_dir == "desc"))
-        elif sort_field == "updated":
-            devices.sort(key=updated_key, reverse=(sort_dir == "desc"))
+        reverse_rows = (sort_dir == "desc")
+        devices.sort(key=device_key_for_sort, reverse=reverse_rows)
 
     lang = get_language()
     theme = get_theme()
+    display_tz = get_display_timezone()
+
     ipv6_enabled = (get_setting("ipv6_enabled", "false") == "true")
-    last_scan_time = get_setting("last_scan_time", "")
+
+    last_scan_time_utc = str(get_setting("last_scan_time_utc", "")).strip()
+    last_scan_time_local = "-"
+    if last_scan_time_utc:
+        try:
+            dt_utc = datetime.datetime.fromisoformat(last_scan_time_utc)
+            last_scan_time_local = format_local(dt_utc, display_tz)
+        except Exception:
+            last_scan_time_local = "-"
 
     configured_scan_interval = get_setting("scan_interval", "5")
     active_scan_interval = get_setting("scan_interval_active", configured_scan_interval)
@@ -1083,12 +2045,14 @@ def index():
         offline_devices=offline_devices,
         new_devices=new_devices,
         ipv6_enabled=ipv6_enabled,
-        last_scan_time=last_scan_time,
+        last_scan_time=last_scan_time_local,
         configured_scan_interval=configured_scan_interval,
         active_scan_interval=active_scan_interval,
         subnet_map=subnet_map,
         has_named_subnets=has_named_subnets,
         subnet_view_mode=subnet_view_mode,
+        display_tz=display_tz,
+        format_local=format_local,
         t=t,
         lang=lang,
         version=APP_VERSION,
@@ -1105,12 +2069,7 @@ def get_scan_status():
 @app.route("/force_scan", methods=["POST"])
 @login_required
 def force_scan():
-    def do_scan_now():
-        with app.app_context():
-            nmap_scan_and_save()
-
-    t_thread = threading.Thread(target=do_scan_now, daemon=True)
-    t_thread.start()
+    request_scan_now()
     return redirect(url_for("index"))
 
 
@@ -1125,7 +2084,7 @@ def update_alias():
     alias = request.form.get("alias", "").strip()
 
     if mac:
-        dev = Device.query.filter_by(mac_address=mac).first()
+        dev = Device.query.filter_by(mac_address=mac.lower()).first()
         if dev:
             dev.alias = alias
             if dev.is_new:
@@ -1147,7 +2106,7 @@ def update_manufacturer():
     manufacturer = request.form.get("manufacturer", "").strip()
 
     if mac:
-        dev = Device.query.filter_by(mac_address=mac).first()
+        dev = Device.query.filter_by(mac_address=mac.lower()).first()
         if dev:
             dev.manufacturer = manufacturer if manufacturer else None
             db.session.commit()
@@ -1249,8 +2208,21 @@ def delete_device(device_id):
 
     dev = Device.query.get(device_id)
     if dev:
+        mac = (dev.mac_address or "").strip().lower()
+
         db.session.delete(dev)
         db.session.commit()
+
+        if mac:
+            try:
+                AlertLog.query.filter(
+                    AlertLog.mac_address == mac,
+                    AlertLog.alert_type.in_(["new_device", "new_device_subnet"])
+                ).delete(synchronize_session=False)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
         flash(t("FLASH_DEVICE_DELETED"), "success")
     else:
         flash(t("FLASH_DEVICE_NOT_FOUND"), "warning")
@@ -1344,8 +2316,34 @@ def config_eggscan():
             scan_interval = request.form.get("scan_interval", "5").strip()
             highlight_new = (request.form.get("highlight_new") == "on")
             ipv6_utils = request.form.get("ipv6_utils", "").strip()
+
+            display_timezone = request.form.get("display_timezone", "").strip()
+
             language = request.form.get("language", "").strip()
             view_mode = request.form.get("subnet_view_mode", "column").strip().lower()
+
+            discord_enabled = (request.form.get("discord_enabled") == "on")
+            discord_webhook_url = request.form.get("discord_webhook_url", "").strip()
+            offline_threshold_minutes = request.form.get("offline_threshold_minutes", "60").strip()
+
+            alert_scope = request.form.get("alert_scope", "all").strip().lower()
+            if alert_scope not in ("all", "selected"):
+                alert_scope = "all"
+
+            new_device_alert_mode = request.form.get("new_device_alert_mode", "both").strip().lower()
+            if new_device_alert_mode not in ("off", "global", "subnets", "both"):
+                new_device_alert_mode = "both"
+
+            selected_subnets = request.form.getlist("new_device_alert_subnets")
+            subnet_ids = []
+            for sid in selected_subnets:
+                sid = str(sid).strip()
+                if not sid:
+                    continue
+                try:
+                    subnet_ids.append(int(sid))
+                except Exception:
+                    pass
 
             if not scan_interval.isdigit() or int(scan_interval) <= 0:
                 flash(t("FLASH_SCAN_INTERVAL_INVALID"), "danger")
@@ -1354,11 +2352,30 @@ def config_eggscan():
             if view_mode not in ("column", "grouped"):
                 view_mode = "column"
 
+            if not offline_threshold_minutes.isdigit() or int(offline_threshold_minutes) <= 0:
+                offline_threshold_minutes = "60"
+
+            if display_timezone:
+                try:
+                    ZoneInfo(display_timezone)
+                except Exception:
+                    display_timezone = ""
+
             set_setting("ipv6_enabled", "true" if ipv6 else "false")
             set_setting("scan_interval", scan_interval)
             set_setting("highlight_new", "true" if highlight_new else "false")
             set_setting("ipv6_utils", ipv6_utils)
             set_setting("subnet_view_mode", view_mode)
+
+            set_setting("discord_enabled", "true" if discord_enabled else "false")
+            set_setting("discord_webhook_url", discord_webhook_url)
+            set_setting("offline_threshold_minutes", offline_threshold_minutes)
+            set_setting("alert_scope", alert_scope)
+
+            set_setting("display_timezone", display_timezone)
+
+            set_setting("new_device_alert_mode", new_device_alert_mode)
+            set_setting("new_device_alert_subnets", ",".join([str(x) for x in sorted(set(subnet_ids))]))
 
             if language in ("sv", "en"):
                 set_setting("language", language)
@@ -1371,7 +2388,32 @@ def config_eggscan():
                     continue
                 new_label = new_label.strip()
                 sn.label = new_label if new_label else None
-            db.session.commit()
+
+            if alert_scope == "selected":
+                enabled_ids = set()
+                all_devices = Device.query.all()
+                for d in all_devices:
+                    if request.form.get(f"alert_dev_{d.id}") == "on":
+                        enabled_ids.add(d.id)
+
+                existing = {r.device_id: r for r in DeviceAlert.query.all()}
+
+                for d in all_devices:
+                    should_enable = (d.id in enabled_ids)
+                    if d.id in existing:
+                        existing[d.id].enabled = should_enable
+                        existing[d.id].updated_at = utc_now()
+                    else:
+                        if should_enable:
+                            db.session.add(DeviceAlert(device_id=d.id, enabled=True))
+
+                for did, row in list(existing.items()):
+                    if not row.enabled:
+                        db.session.delete(row)
+
+                db.session.commit()
+            else:
+                db.session.commit()
 
             flash(t("FLASH_SETTINGS_UPDATED"), "success")
 
@@ -1387,6 +2429,26 @@ def config_eggscan():
     theme = get_theme()
     subnet_view_mode = get_subnet_view_mode()
 
+    display_tz = get_display_timezone()
+
+    discord_enabled = (get_setting("discord_enabled", "false") == "true")
+    discord_webhook_url = get_setting("discord_webhook_url", "")
+    offline_threshold_minutes = get_setting("offline_threshold_minutes", "60")
+    alert_scope = get_alert_scope()
+
+    all_devices = Device.query.order_by(
+        case((Device.alias.is_(None), 1), else_=0),
+        Device.alias.asc(),
+        Device.mac_address.asc()
+    ).all()
+
+    alert_rows = DeviceAlert.query.all()
+    alert_map = {r.device_id: r for r in alert_rows}
+    timezones = sorted(available_timezones())
+
+    new_device_alert_mode = get_new_device_alert_mode()
+    new_device_alert_subnets = get_new_device_alert_subnet_ids()
+
     return render_template(
         "config.html",
         subnets=subnets,
@@ -1399,7 +2461,18 @@ def config_eggscan():
         t=t,
         lang=lang,
         version=APP_VERSION,
-        theme=theme
+        theme=theme,
+        discord_enabled=discord_enabled,
+        discord_webhook_url=discord_webhook_url,
+        offline_threshold_minutes=offline_threshold_minutes,
+        alert_scope=alert_scope,
+        all_devices=all_devices,
+        alert_map=alert_map,
+        display_tz=display_tz,
+        format_local=format_local,
+        timezones=timezones,
+        new_device_alert_mode=new_device_alert_mode,
+        new_device_alert_subnets=new_device_alert_subnets,
     )
 
 
@@ -1417,6 +2490,7 @@ def update_theme():
 
     set_setting("theme", theme)
     return redirect(url_for("config_eggscan"))
+
 
 @app.route("/update_subnet_order", methods=["POST"])
 @login_required
@@ -1439,11 +2513,56 @@ def update_subnet_order():
     return jsonify({"ok": True})
 
 
+@app.route("/test_discord", methods=["POST"])
+@login_required
+def test_discord():
+    if not current_user.is_admin:
+        return redirect(url_for("index"))
+
+    discord_enabled = get_bool_setting("discord_enabled", default=False)
+    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
+
+    if not discord_enabled or not webhook_url:
+        flash(t("ALERTS_TEST_FAIL").format(error="Discord not enabled or webhook URL missing"), "warning")
+        return redirect(url_for("config_eggscan"))
+
+    try:
+        send_discord_webhook(webhook_url, "✅ EggScan test alert: Discord webhook is working.")
+        log_alert("test", "discord", "sent", device=None, details={"message": "test"})
+        flash(t("ALERTS_TEST_SENT"), "success")
+    except Exception as e:
+        err = str(e)
+        try:
+            log_alert("test", "discord", "failed", device=None, details={"message": "test"}, error=err, dedupe_key=None)
+        except Exception:
+            db.session.rollback()
+        flash(tf("ALERTS_TEST_FAIL", error=err), "danger")
+
+    return redirect(url_for("config_eggscan"))
+
+
 # ---------------------------
 #       STARTUP
 # ---------------------------
 
-if __name__ == "__main__":
-    t_thread = threading.Thread(target=run_periodic_scan, daemon=True)
-    t_thread.start()
+def main():
+    parser = argparse.ArgumentParser(prog="eggscan")
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        default="web-dev",
+        choices=["web-dev", "scan-worker"],
+        help="web-dev = Flask dev server (for local testing). scan-worker = scanning loop (for systemd)."
+    )
+    args = parser.parse_args()
+
+    if args.mode == "scan-worker":
+        run_scan_worker()
+        return
+
+    # web-dev (endast för test). I prod kör systemd gunicorn.
     app.run(host="0.0.0.0", port=5000, debug=False)
+
+
+if __name__ == "__main__":
+    main()
