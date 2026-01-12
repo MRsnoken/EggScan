@@ -132,8 +132,8 @@ EggScan is **not** intended for:
   - Devices grouped into subnet sections
 - Accurate handling of devices present in multiple subnets
 - Subnet display reflects actual scan results (no guessed or historical placement)
-- Upgrade-safe installer with automatic database schema checks
-Optional Discord alerts for:
+- Upgrade-safe installer with automatic database schema checks<br>
+- Optional Discord alerts for:
   - New devices
   - Devices appearing in new subnets
   - Offline / back-online events
