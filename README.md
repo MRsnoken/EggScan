@@ -137,8 +137,8 @@ EggScan is **not** intended for:
   - New devices
   - Devices appearing in new subnets
   - Offline / back-online events
-  - Separated scan worker and web UI for improved stability
-  - Production-ready web serving via Gunicorn (systemd)
+- Separated scan worker and web UI for improved stability
+ - Production-ready web serving via Gunicorn (systemd)
 
 </details>
 
