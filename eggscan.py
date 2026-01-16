@@ -2080,11 +2080,12 @@ def update_alias():
         flash(t("FLASH_ALIAS_ADMIN_ONLY"), "danger")
         return redirect(url_for("index"))
 
-    mac = request.form.get("mac")
+    mac = request.form.get("mac", "").strip()
     alias = request.form.get("alias", "").strip()
 
     if mac:
-        dev = Device.query.filter_by(mac_address=mac.lower()).first()
+        mac_norm = mac.lower()
+        dev = Device.query.filter(db.func.lower(Device.mac_address) == mac_norm).first()
         if dev:
             dev.alias = alias
             if dev.is_new:
@@ -2102,11 +2103,12 @@ def update_manufacturer():
         flash(t("FLASH_MANUFACTURER_ADMIN_ONLY"), "danger")
         return redirect(url_for("index"))
 
-    mac = request.form.get("mac")
+    mac = request.form.get("mac", "").strip()
     manufacturer = request.form.get("manufacturer", "").strip()
 
     if mac:
-        dev = Device.query.filter_by(mac_address=mac.lower()).first()
+        mac_norm = mac.lower()
+        dev = Device.query.filter(db.func.lower(Device.mac_address) == mac_norm).first()
         if dev:
             dev.manufacturer = manufacturer if manufacturer else None
             db.session.commit()
