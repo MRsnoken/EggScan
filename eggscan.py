@@ -17,7 +17,7 @@ import tempfile
 
 from flask import (
     Flask, render_template, redirect, url_for, request, flash,
-    jsonify, has_request_context
+    jsonify, has_request_context, session, abort
 )
 
 from flask_sqlalchemy import SQLAlchemy
@@ -93,6 +93,32 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
 
+def generate_csrf_token() -> str:
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+@app.before_request
+def csrf_protect():
+    if request.method != "POST":
+        return None
+    token = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
+    session_token = session.get("_csrf_token")
+    if not session_token or not token or not secrets.compare_digest(str(session_token), str(token)):
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": False, "error": "csrf"}), 400
+        abort(400)
+    return None
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {"csrf_token": generate_csrf_token}
+
+
 
 
 
@@ -120,6 +146,8 @@ class Device(db.Model):
     ip_address = db.Column(db.String(200))
     mac_address = db.Column(db.String(40), unique=True)
     alias = db.Column(db.String(100), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    tags = db.Column(db.Text, nullable=True)
     manufacturer = db.Column(db.String(100), nullable=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
     last_seen_scan = db.Column(db.String(36), nullable=True)
@@ -203,6 +231,12 @@ def ensure_db_schema():
         if not has_column("device", "last_seen_at"):
             db.session.execute(text("ALTER TABLE device ADD COLUMN last_seen_at DATETIME;"))
 
+        if not has_column("device", "notes"):
+            db.session.execute(text("ALTER TABLE device ADD COLUMN notes TEXT;"))
+
+        if not has_column("device", "tags"):
+            db.session.execute(text("ALTER TABLE device ADD COLUMN tags TEXT;"))
+
         try:
             db.session.execute(text("SELECT 1 FROM device_alert LIMIT 1;"))
         except Exception:
@@ -262,7 +296,7 @@ TRANSLATIONS = {
         "FILTER_BOTH": "Båda",
         "FILTER_ONLINE": "Endast online",
         "FILTER_OFFLINE": "Endast offline",
-        "SEARCH_PLACEHOLDER": "Sök IP/MAC/Alias",
+        "SEARCH_PLACEHOLDER": "Sök IP/MAC/Alias/Taggar",
         "SEARCH_FILTER_BUTTON": "Sök/Filtrera",
         "SORT_LABEL": "Sortera:",
         "SORT_IP": "IP",
@@ -286,6 +320,11 @@ TRANSLATIONS = {
         "DELETE": "Ta bort",
         "ALIAS_MODAL_TITLE": "Uppdatera Alias",
         "ALIAS_LABEL": "Alias",
+        "ALIAS_DETAILS_LABEL": "Detaljer",
+        "ALIAS_DETAILS_PLACEHOLDER": "Valfri anteckning om enheten...",
+        "ALIAS_TAGS_LABEL": "Taggar",
+        "ALIAS_TAGS_PLACEHOLDER": "t.ex. kamera, iot, gäst",
+        "ALIAS_TAGS_HINT": "Separera flera taggar med kommatecken.",
         "CANCEL": "Avbryt",
         "ALIAS_SAVE": "Spara",
 
@@ -378,6 +417,9 @@ TRANSLATIONS = {
         "FLASH_SUBNET_DELETED": "Subnät {cidr} raderat!",
         "FLASH_SCAN_INTERVAL_INVALID": "Skanningsintervall måste vara ett positivt heltal.",
         "FLASH_SETTINGS_UPDATED": "Inställningar uppdaterade!",
+        "FLASH_AJAX_MARK_KNOWN_FAIL": "Kunde inte markera enheten som känd.",
+        "FLASH_AJAX_SUBNET_ORDER_FAIL": "Kunde inte spara subnätsordning.",
+        "FLASH_AJAX_SCAN_STATUS_FAIL": "Kunde inte hämta skanningsstatus. Uppdatera sidan.",
 
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Endast admin kan ändra tillverkare!",
         "FLASH_MANUFACTURER_UPDATED": "Tillverkare uppdaterad!",
@@ -468,7 +510,7 @@ TRANSLATIONS = {
         "FILTER_BOTH": "Both",
         "FILTER_ONLINE": "Online only",
         "FILTER_OFFLINE": "Offline only",
-        "SEARCH_PLACEHOLDER": "Search IP/MAC/Alias",
+        "SEARCH_PLACEHOLDER": "Search IP/MAC/Alias/Tags",
         "SEARCH_FILTER_BUTTON": "Search/Filter",
         "SORT_LABEL": "Sort:",
         "SORT_IP": "IP",
@@ -492,6 +534,11 @@ TRANSLATIONS = {
         "DELETE": "Delete",
         "ALIAS_MODAL_TITLE": "Update Alias",
         "ALIAS_LABEL": "Alias",
+        "ALIAS_DETAILS_LABEL": "Details",
+        "ALIAS_DETAILS_PLACEHOLDER": "Optional notes about this device...",
+        "ALIAS_TAGS_LABEL": "Tags",
+        "ALIAS_TAGS_PLACEHOLDER": "e.g. camera, iot, guest",
+        "ALIAS_TAGS_HINT": "Separate multiple tags with commas.",
         "CANCEL": "Cancel",
         "ALIAS_SAVE": "Save",
 
@@ -584,6 +631,9 @@ TRANSLATIONS = {
         "FLASH_GUESSED_SUBNET_EXISTS": "Subnet {cidr} already exists!",
         "FLASH_SCAN_INTERVAL_INVALID": "Scan interval must be a positive integer.",
         "FLASH_SETTINGS_UPDATED": "Settings updated!",
+        "FLASH_AJAX_MARK_KNOWN_FAIL": "Could not mark device as known.",
+        "FLASH_AJAX_SUBNET_ORDER_FAIL": "Could not save subnet order.",
+        "FLASH_AJAX_SCAN_STATUS_FAIL": "Could not fetch scan status. Refresh the page.",
 
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Only admin can change manufacturer!",
         "FLASH_MANUFACTURER_UPDATED": "Manufacturer updated!",
@@ -844,6 +894,21 @@ def tf(key, **kwargs):
 # ---------------------------
 #   HELPERS
 # ---------------------------
+
+def normalize_tags(raw_value: str) -> Optional[str]:
+    raw_value = str(raw_value or "")
+    tags = []
+    seen = set()
+    for part in raw_value.split(","):
+        tag = " ".join(part.strip().split())
+        if not tag:
+            continue
+        tag_lower = tag.lower()
+        if tag_lower in seen:
+            continue
+        seen.add(tag_lower)
+        tags.append(tag_lower)
+    return ", ".join(tags) if tags else None
 
 SCAN_LOCK_KEY = "scan_lock_token"
 SCAN_LOCK_UNTIL_KEY = "scan_lock_until_utc"
@@ -1821,7 +1886,7 @@ def login():
     return render_template("login.html", t=t, lang=lang, version=APP_VERSION, theme="default")
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     logout_user()
@@ -1871,7 +1936,8 @@ def index():
                 Device.ip_address.ilike(pattern),
                 Device.mac_address.ilike(pattern),
                 Device.alias.ilike(pattern),
-                Device.manufacturer.ilike(pattern)
+                Device.manufacturer.ilike(pattern),
+                Device.tags.ilike(pattern)
             )
         )
 
@@ -1887,6 +1953,17 @@ def index():
             )
 
     devices = q.all()
+    tag_rows = Device.query.with_entities(Device.tags).all()
+    tag_set = set()
+    for row in tag_rows:
+        if not row or not row[0]:
+            continue
+        for tag in str(row[0]).split(","):
+            tag = tag.strip()
+            if not tag:
+                continue
+            tag_set.add(tag.lower())
+    available_tags = sorted(tag_set)
     device_by_id = {d.id: d for d in devices}
 
     total_devices = len(devices)
@@ -2051,6 +2128,7 @@ def index():
         subnet_map=subnet_map,
         has_named_subnets=has_named_subnets,
         subnet_view_mode=subnet_view_mode,
+        available_tags=available_tags,
         display_tz=display_tz,
         format_local=format_local,
         t=t,
@@ -2082,12 +2160,16 @@ def update_alias():
 
     mac = request.form.get("mac", "").strip()
     alias = request.form.get("alias", "").strip()
+    notes = request.form.get("notes", "").strip()
+    tags = normalize_tags(request.form.get("tags", ""))
 
     if mac:
         mac_norm = mac.lower()
         dev = Device.query.filter(db.func.lower(Device.mac_address) == mac_norm).first()
         if dev:
             dev.alias = alias
+            dev.notes = notes if notes else None
+            dev.tags = tags
             if dev.is_new:
                 dev.is_new = False
             db.session.commit()
@@ -2363,24 +2445,30 @@ def config_eggscan():
                 except Exception:
                     display_timezone = ""
 
-            set_setting("ipv6_enabled", "true" if ipv6 else "false")
-            set_setting("scan_interval", scan_interval)
-            set_setting("highlight_new", "true" if highlight_new else "false")
-            set_setting("ipv6_utils", ipv6_utils)
-            set_setting("subnet_view_mode", view_mode)
-
-            set_setting("discord_enabled", "true" if discord_enabled else "false")
-            set_setting("discord_webhook_url", discord_webhook_url)
-            set_setting("offline_threshold_minutes", offline_threshold_minutes)
-            set_setting("alert_scope", alert_scope)
-
-            set_setting("display_timezone", display_timezone)
-
-            set_setting("new_device_alert_mode", new_device_alert_mode)
-            set_setting("new_device_alert_subnets", ",".join([str(x) for x in sorted(set(subnet_ids))]))
+            settings_updates = {
+                "ipv6_enabled": "true" if ipv6 else "false",
+                "scan_interval": scan_interval,
+                "highlight_new": "true" if highlight_new else "false",
+                "ipv6_utils": ipv6_utils,
+                "subnet_view_mode": view_mode,
+                "discord_enabled": "true" if discord_enabled else "false",
+                "discord_webhook_url": discord_webhook_url,
+                "offline_threshold_minutes": offline_threshold_minutes,
+                "alert_scope": alert_scope,
+                "display_timezone": display_timezone,
+                "new_device_alert_mode": new_device_alert_mode,
+                "new_device_alert_subnets": ",".join([str(x) for x in sorted(set(subnet_ids))]),
+            }
 
             if language in ("sv", "en"):
-                set_setting("language", language)
+                settings_updates["language"] = language
+
+            for key, value in settings_updates.items():
+                row = Settings.query.filter_by(key=key).first()
+                if not row:
+                    db.session.add(Settings(key=key, value=str(value)))
+                else:
+                    row.value = str(value)
 
             subnets = SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all()
             for sn in subnets:

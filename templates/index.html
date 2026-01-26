@@ -19,7 +19,10 @@
         {% endif %}
       </span>
 
-      <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-danger mr-2">{{ t("LOGOUT") }}</a>
+      <form method="POST" action="{{ url_for('logout') }}" class="d-inline mr-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-danger">{{ t("LOGOUT") }}</button>
+      </form>
       <a href="{{ url_for('change_password') }}" class="btn btn-sm btn-outline-warning mr-2">{{ t("CHANGE_PASSWORD") }}</a>
 
       {% if current_user.is_admin %}
@@ -39,6 +42,7 @@
       </div>
 
       <form method="POST" action="{{ url_for('manual_ping') }}" class="form-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group mr-2 mb-0">
           <input type="text" name="ip" id="ipInput" class="form-control form-control-sm"
                  placeholder="{{ t('MANUAL_PING_PLACEHOLDER') }}" required>
@@ -62,7 +66,7 @@
         {% if messages %}
           <div class="mb-3">
             {% for category, msg in messages %}
-              <div class="alert alert-{{ 'danger' if category=='danger' else category }} mb-1" role="alert">
+              <div class="alert alert-{{ 'danger' if category=='danger' else category }} mb-1 js-flash-alert" role="alert">
                 {{ msg }}
               </div>
             {% endfor %}
@@ -109,6 +113,7 @@
       <div class="d-flex justify-content-between align-items-center mb-3">
         <div></div>
         <form method="POST" action="{{ url_for('force_scan') }}" class="mb-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-primary">{{ t("SCAN_NOW") }}</button>
         </form>
       </div>
@@ -288,7 +293,7 @@
                     data-mac="{{ dev.mac_address }}"
                     data-is-new="{{ '1' if dev.is_new else '0' }}"
                     data-status="{{ status_value }}"
-                    data-search="{{ (grp.title ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '')) | lower }}"
+                    data-search="{{ (grp.title ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '') ~ ' ' ~ (dev.tags or '')) | lower }}"
                   >
                     <td class="align-middle">
                       {% if dev.ip_address and dev.ip_address != "-" %}
@@ -318,6 +323,7 @@
                     <td class="align-middle">
                       {% if dev.ip_address != "-" %}
                         <form method="POST" action="{{ url_for('ping_device', device_id=dev.id) }}" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           <button type="submit" class="btn btn-info btn-sm">{{ t("TABLE_PING") }}</button>
                         </form>
                       {% else %}
@@ -358,6 +364,7 @@
                           {% endif %}
 
                           <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
                               {{ t("DELETE") }}
                             </button>
@@ -405,7 +412,7 @@
                   data-mac="{{ dev.mac_address }}"
                   data-is-new="{{ '1' if dev.is_new else '0' }}"
                   data-status="{{ status_value }}"
-                  data-search="{{ ((subnet_label if show_subnet else '') ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '')) | lower }}"
+                  data-search="{{ ((subnet_label if show_subnet else '') ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '') ~ ' ' ~ (dev.tags or '')) | lower }}"
                 >
                   {% if show_subnet %}
                     <td class="align-middle">{{ subnet_label }}</td>
@@ -439,6 +446,7 @@
                   <td class="align-middle">
                     {% if dev.ip_address != "-" %}
                       <form method="POST" action="{{ url_for('ping_device', device_id=dev.id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-info btn-sm">{{ t("TABLE_PING") }}</button>
                       </form>
                     {% else %}
@@ -475,6 +483,7 @@
                         {% endif %}
 
                         <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
                             {{ t("DELETE") }}
                           </button>
@@ -505,6 +514,7 @@
         <div class="modal fade" id="aliasModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="aliasModalLabel{{ dev.id }}" aria-hidden="true">
           <div class="modal-dialog" role="document">
             <form method="POST" action="{{ url_for('update_alias') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="modal-content">
                 <div class="modal-header">
                   <h5 class="modal-title text-dark" id="aliasModalLabel{{ dev.id }}">{{ t("ALIAS_MODAL_TITLE") }}</h5>
@@ -516,6 +526,27 @@
                     <label for="aliasInput{{ dev.id }}">{{ t("ALIAS_LABEL") }}</label>
                     <input type="text" class="form-control" id="aliasInput{{ dev.id }}" name="alias"
                            value="{{ dev.alias or '' }}" placeholder="{{ t('ALIAS_LABEL') }}">
+                  </div>
+                  <div class="form-group">
+                    <label for="notesInput{{ dev.id }}">{{ t("ALIAS_DETAILS_LABEL") }}</label>
+                    <textarea class="form-control" id="notesInput{{ dev.id }}" name="notes" rows="3"
+                              placeholder="{{ t('ALIAS_DETAILS_PLACEHOLDER') }}">{{ dev.notes or '' }}</textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="tagsInput{{ dev.id }}">{{ t("ALIAS_TAGS_LABEL") }}</label>
+                    <div class="tag-input" data-tags-initial="{{ dev.tags or '' }}">
+                      <div class="tag-chip-list"></div>
+                      <input
+                        type="text"
+                        class="tag-input-field"
+                        id="tagsInput{{ dev.id }}"
+                        placeholder="{{ t('ALIAS_TAGS_PLACEHOLDER') }}"
+                        list="deviceTagList"
+                        autocomplete="off"
+                      >
+                      <input type="hidden" name="tags" value="{{ dev.tags or '' }}">
+                    </div>
+                    <small class="form-text text-muted">{{ t("ALIAS_TAGS_HINT") }}</small>
                   </div>
                 </div>
                 <div class="modal-footer">
@@ -530,6 +561,7 @@
         <div class="modal fade" id="manufacturerModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="manufacturerModalLabel{{ dev.id }}" aria-hidden="true">
           <div class="modal-dialog" role="document">
             <form method="POST" action="{{ url_for('update_manufacturer') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="modal-content">
                 <div class="modal-header">
                   <h5 class="modal-title text-dark" id="manufacturerModalLabel{{ dev.id }}">{{ t("MANUFACTURER_MODAL_TITLE") }}</h5>
@@ -592,9 +624,13 @@
 }
 </style>
 
-<meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
 <div id="mark-known-endpoints"
      data-url="{{ url_for('mark_known', device_id=0) }}"
      style="display:none"></div>
+<datalist id="deviceTagList">
+  {% for tag in available_tags %}
+    <option value="{{ tag }}">
+  {% endfor %}
+</datalist>
 
 {% endblock %}

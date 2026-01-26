@@ -15,7 +15,10 @@
         <div>
           <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">{{ t("BACK") }}</a>
           <a href="{{ url_for('change_password') }}" class="btn btn-warning btn-sm">{{ t("CHANGE_PASSWORD") }}</a>
-          <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</a>
+          <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</button>
+          </form>
         </div>
       </div>
 
@@ -24,7 +27,7 @@
           {% if messages %}
             <div class="mb-3">
               {% for category, msg in messages %}
-                <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
+              <div class="alert alert-{{ 'danger' if category=='danger' else category }} js-flash-alert" role="alert">
                   {{ msg }}
                 </div>
               {% endfor %}
@@ -34,6 +37,7 @@
 
         <h5 class="mb-3">{{ t("MANAGE_USERS_ADD_TITLE") }}</h5>
         <form method="POST" class="form-inline mb-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="add">
           <input name="username" class="form-control mr-2 mb-2" placeholder="{{ t('MANAGE_USERS_USERNAME') }}" required>
           <input name="password" class="form-control mr-2 mb-2" placeholder="{{ t('MANAGE_USERS_PASSWORD') }}" type="password" required>
@@ -60,6 +64,7 @@
                 <td>
                   {% if not u.is_admin %}
                     <form method="POST" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <input type="hidden" name="action" value="delete">
                       <input type="hidden" name="user_id" value="{{ u.id }}">
                       <button type="submit" class="btn btn-danger btn-sm">{{ t("MANAGE_USERS_DELETE_BUTTON") }}</button>

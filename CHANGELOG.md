@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.2] – 2026-01-26
+
+## Fixed
+  -  Added CSRF protection for all POST actions.
+  -  Logout is now POST-only (CSRF-protected).
+  -  Settings updates are now saved in a single transaction to avoid partial updates.
+  -  AJAX errors now surface as flash alerts (mark known, subnet order, scan status).
+
+## Added
+  -  Device details (notes) field in the alias modal.
+  -  Device tags in the alias modal with search support, autocomplete, and chip input.
+  -  Flash messages now auto-dismiss after 15 seconds.
+
 ## [1.5.1] – 2026-01-16
 
 ## Fixed

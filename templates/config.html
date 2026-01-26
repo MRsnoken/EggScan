@@ -16,7 +16,10 @@
         <div>
           <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">{{ t("BACK") }}</a>
           <a href="{{ url_for('change_password') }}" class="btn btn-warning btn-sm">{{ t("CHANGE_PASSWORD") }}</a>
-          <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</a>
+          <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger btn-sm">{{ t("LOGOUT") }}</button>
+          </form>
         </div>
       </div>
 
@@ -25,7 +28,7 @@
           {% if messages %}
             <div class="mb-3">
               {% for category, msg in messages %}
-                <div class="alert alert-{{ 'danger' if category=='danger' else category }}" role="alert">
+                <div class="alert alert-{{ 'danger' if category=='danger' else category }} js-flash-alert" role="alert">
                   {{ msg }}
                 </div>
               {% endfor %}
@@ -38,6 +41,7 @@
         -------------------------- #}
 
         <form method="POST" class="form-inline mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="add_subnet">
           <label class="mr-2">{{ t("CONFIG_ADD_SUBNET_LABEL") }}</label>
           <input type="text" name="cidr" class="form-control mr-2" required>
@@ -72,6 +76,7 @@
                 </td>
                 <td class="align-middle">
                   <form method="POST" class="d-inline" onsubmit="return confirm('{{ t('CONFIRM_DELETE') }}');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="delete_subnet">
                     <input type="hidden" name="subnet_id" value="{{ sn.id }}">
                     <button type="submit" class="btn btn-danger btn-sm">
@@ -86,6 +91,7 @@
         </div>
 
         <form method="POST" class="mb-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="guess">
           <button type="submit" class="btn btn-info">{{ t("CONFIG_GUESS_BUTTON") }}</button>
         </form>
@@ -309,6 +315,7 @@
 
           <div class="mt-2">
             <form method="POST" action="{{ url_for('test_discord') }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-info btn-sm">{{ t("ALERTS_TEST_BUTTON") }}</button>
             </form>
           </div>
@@ -414,6 +421,7 @@
             </div>
 
             <form method="POST" action="{{ url_for('update_theme') }}" class="form-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <select name="theme" class="form-control mr-2">
                 <option value="default" {% if theme == 'default' %}selected{% endif %}>Default</option>
                 <option value="dark" {% if theme == 'dark' %}selected{% endif %}>Dark</option>
@@ -430,6 +438,7 @@
         -------------------------- #}
 
         <form method="POST" id="settingsForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="update_settings">
 
           <div class="form-group mb-2">

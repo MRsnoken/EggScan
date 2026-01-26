@@ -309,11 +309,70 @@ body.theme-cosmos .page-index .card-header{
   background-clip: padding-box;
 }
 
+/* Tag input chips */
+.page-index .tag-input{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--input-border);
+  border-radius: 0.25rem;
+  background-color: var(--input-bg);
+}
+
+.page-index .tag-input:focus-within{
+  border-color: var(--link);
+}
+
+.page-index .tag-input-field{
+  flex: 1 1 140px;
+  min-width: 140px;
+  border: none;
+  background: transparent;
+  color: var(--input-text);
+  outline: none;
+  padding: 0.2rem 0;
+}
+
+.page-index .tag-chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(59,130,246,0.35);
+  background-color: rgba(59,130,246,0.18);
+  color: var(--text-0);
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
+
+.page-index .tag-chip-remove{
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
 /* COSMOS: focus glow */
 body.theme-cosmos .page-app .form-control:focus,
 body.theme-cosmos .page-index .form-control:focus{
   border-color: rgba(34, 211, 238, 0.45);
   box-shadow: var(--cosmos-glow-strong);
+}
+
+/* Flash auto-dismiss */
+.js-flash-alert{
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.js-flash-alert.flash-hide{
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* =========================================================
