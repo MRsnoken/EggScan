@@ -252,9 +252,10 @@ EggScan is intended for **trusted local networks only**.
 
 It does not currently include:
 
-- CSRF protection
 - Hardened or enterprise-grade authentication
 - HTTPS / TLS by default
+
+EggScan **does include CSRF protection** for POST actions, but it is still a local‑only tool.
 
 For remote access, EggScan must be placed behind:
 
@@ -264,7 +265,6 @@ For remote access, EggScan must be placed behind:
 
 **Do not expose EggScan directly to the public internet.**
 
----
 
 ## 🗺️ Roadmap (non-binding)
 
