@@ -138,11 +138,17 @@ EggScan is **not** intended for:
   - Devices appearing in new subnets
   - Offline / back-online events
 - Separated scan worker and web UI for improved stability
- - Production-ready web serving via Gunicorn (systemd)
+- Production-ready web serving via Gunicorn (systemd)
 
 </details>
 
----
+
+<details>
+<summary><strong>Requirements</strong> ⬇</summary>
+
+- Python 3.9+ 
+- Linux / Unix-like system (tested on Debian/Ubuntu/Raspberry Pi OS)
+</details>
 
 <details>
 <summary><strong> Installation (Debian / Ubuntu) </strong> ⬇</summary>
@@ -204,7 +210,7 @@ No automatic installer is provided.
 
 You must manually install:
 
-- Python 3
+- Python 3.9+
 - python3-venv (or equivalent)
 - pip
 - nmap
