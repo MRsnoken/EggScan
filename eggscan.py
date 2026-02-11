@@ -10,14 +10,16 @@ import subprocess
 import os
 import json
 import secrets
-import urllib.request
-import urllib.error
 import argparse
 import tempfile
+import sqlite3
+import io
+
+import apprise
 
 from flask import (
     Flask, render_template, redirect, url_for, request, flash,
-    jsonify, has_request_context, session, abort
+    jsonify, has_request_context, session, abort, send_file
 )
 
 from flask_sqlalchemy import SQLAlchemy
@@ -305,6 +307,7 @@ TRANSLATIONS = {
         "SORT_MANUFACTURER": "Tillverkare",
         "SORT_UPDATED": "Uppdaterad",
         "SCAN_NOW": "Skanna nu",
+        "BACKUP_DB": "Backup databas",
         "SCAN_RUNNING": "Skanning pågår…",
         "TABLE_IP": "IP",
         "TABLE_MAC": "MAC",
@@ -317,6 +320,7 @@ TRANSLATIONS = {
         "ALIAS_NONE": "Inget alias",
         "MANUFACTURER_UNKNOWN": "Okänd",
         "MARK_KNOWN": "Markera känd",
+        "MARK_ALL_NEW_KNOWN": "Markera alla nya som kända",
         "DELETE": "Ta bort",
         "ALIAS_MODAL_TITLE": "Uppdatera Alias",
         "ALIAS_LABEL": "Alias",
@@ -396,6 +400,8 @@ TRANSLATIONS = {
         "FLASH_ALIAS_UPDATED": "Alias uppdaterat!",
         "FLASH_STATUS_ADMIN_ONLY": "Endast admin kan ändra status!",
         "FLASH_DEVICE_MARKED_KNOWN": "Enhet markerad som känd.",
+        "FLASH_ALL_NEW_MARKED_KNOWN": "{count} nya enheter markerades som kända.",
+        "FLASH_NO_NEW_DEVICES": "Inga nya enheter att markera.",
         "FLASH_CANNOT_PING_OFFLINE": "Kan inte pinga en offline-enhet.",
         "FLASH_PING_OK": "Ping OK: {ip}",
         "FLASH_PING_FAIL": "Ping misslyckades: {ip}",
@@ -417,6 +423,7 @@ TRANSLATIONS = {
         "FLASH_SUBNET_DELETED": "Subnät {cidr} raderat!",
         "FLASH_SCAN_INTERVAL_INVALID": "Skanningsintervall måste vara ett positivt heltal.",
         "FLASH_SETTINGS_UPDATED": "Inställningar uppdaterade!",
+        "FLASH_DB_BACKUP_FAILED": "Kunde inte skapa databasbackup: {error}",
         "FLASH_AJAX_MARK_KNOWN_FAIL": "Kunde inte markera enheten som känd.",
         "FLASH_AJAX_SUBNET_ORDER_FAIL": "Kunde inte spara subnätsordning.",
         "FLASH_AJAX_SCAN_STATUS_FAIL": "Kunde inte hämta skanningsstatus. Uppdatera sidan.",
@@ -443,8 +450,33 @@ TRANSLATIONS = {
         "CONFIG_SUBNET_VIEW_MODE_HINT": "Subnät visas bara om minst ett subnät har ett namn.",
 
         "ALERTS_TITLE": "Larm",
-        "ALERTS_DISCORD_ENABLE": "Aktivera Discord webhook",
+        "ALERTS_PROVIDER_LABEL": "Larmkanal",
+        "ALERTS_PROVIDER_DISCORD": "Discord",
+        "ALERTS_PROVIDER_TELEGRAM": "Telegram",
+        "ALERTS_PROVIDER_SLACK": "Slack",
+        "ALERTS_PROVIDER_EMAIL": "Email",
+        "ALERTS_PROVIDER_TEAMS": "Teams",
+        "ALERTS_PROVIDER_PUSHOVER": "Pushover",
+        "ALERTS_PROVIDER_GOTIFY": "Gotify",
+        "ALERTS_PROVIDER_CUSTOM": "Custom (Apprise URL)",
+        "ALERTS_ENABLE_LABEL": "Aktivera larm",
         "ALERTS_DISCORD_WEBHOOK": "Discord webhook URL",
+        "ALERTS_SLACK_WEBHOOK": "Slack webhook URL",
+        "ALERTS_TEAMS_WEBHOOK": "Teams webhook URL",
+        "ALERTS_TELEGRAM_BOT_TOKEN": "Telegram bot token",
+        "ALERTS_TELEGRAM_CHAT_ID": "Telegram chat ID",
+        "ALERTS_TELEGRAM_BOT_TOKEN_PLACEHOLDER": "123456:ABC-DEF...",
+        "ALERTS_TELEGRAM_CHAT_ID_PLACEHOLDER": "t.ex. 123456789 eller -100...",
+        "ALERTS_EMAIL_URL": "Email (Apprise URL)",
+        "ALERTS_EMAIL_URL_PLACEHOLDER": "mailto://user:pass@host/?to=you@example.com",
+        "ALERTS_PUSHOVER_USER": "Pushover user key",
+        "ALERTS_PUSHOVER_TOKEN": "Pushover app token",
+        "ALERTS_PUSHOVER_DEVICE": "Pushover device (valfritt)",
+        "ALERTS_GOTIFY_HOST": "Gotify host",
+        "ALERTS_GOTIFY_TOKEN": "Gotify app token",
+        "ALERTS_GOTIFY_HTTPS": "Använd HTTPS",
+        "ALERTS_CUSTOM_URL": "Apprise URL",
+        "ALERTS_CUSTOM_URL_PLACEHOLDER": "t.ex. discord://..., tgram://..., gotify://...",
         "ALERTS_OFFLINE_THRESHOLD": "Larma om offline längre än (minuter)",
         "ALERTS_SCOPE_LABEL": "Larm-omfattning",
         "ALERTS_SCOPE_ALL": "Alla enheter",
@@ -468,19 +500,46 @@ TRANSLATIONS = {
         "THEME_LIGHT": "Ljust",
         "THEME_COSMOS": "Cosmos",
         "ALERTS_DISCORD_WEBHOOK_PLACEHOLDER": "https://discord.com/api/webhooks/...",
-        "ALERTS_NEW_DEVICE_TITLE": "Nya enheter (Discord)",
+        "ALERTS_NEW_DEVICE_TITLE": "Nya enheter",
         "ALERTS_NEW_DEVICE_OFF": "Av",
         "ALERTS_NEW_DEVICE_GLOBAL": "Globalt (endast helt ny enhet)",
         "ALERTS_NEW_DEVICE_SUBNETS": "Endast valda subnät",
         "ALERTS_NEW_DEVICE_BOTH": "Båda (globalt + subnät)",
         "ALERTS_NEW_DEVICE_HINT": "Globalt triggar bara när en enhet skapas första gången (ny MAC). Subnät triggar bara första gången en enhet syns i ett subnät.",
         "ALERTS_NEW_DEVICE_SUBNET_PICKER_TITLE": "Subnät som ska trigga subnäts-larm",
-        "DISCORD_NEW_DEVICE_GLOBAL_TITLE": "🆕 EggScan: Ny enhet upptäckt!",
-        "DISCORD_NEW_DEVICE_SUBNET_TITLE": "🆕 EggScan: Ny enhet i subnät!",
-        "DISCORD_LABEL_NAME": "Namn",
-        "DISCORD_LABEL_MAC": "MAC",
-        "DISCORD_LABEL_IP": "IP",
-        "DISCORD_LABEL_SUBNET": "Subnät",
+        "ALERT_NEW_DEVICE_GLOBAL_TITLE": "🆕 EggScan: Ny enhet upptäckt!",
+        "ALERT_NEW_DEVICE_SUBNET_TITLE": "🆕 EggScan: Ny enhet i subnät!",
+        "ALERT_LABEL_NAME": "Namn",
+        "ALERT_LABEL_MAC": "MAC",
+        "ALERT_LABEL_IP": "IP",
+        "ALERT_LABEL_SUBNET": "Subnät",
+        "QUIET_TITLE": "Tyst läge",
+        "QUIET_ENABLE": "Aktivera tyst läge",
+        "QUIET_START": "Starttid",
+        "QUIET_END": "Sluttid",
+        "QUIET_DAYS": "Dagar",
+        "QUIET_DAY_MON": "Mån",
+        "QUIET_DAY_TUE": "Tis",
+        "QUIET_DAY_WED": "Ons",
+        "QUIET_DAY_THU": "Tor",
+        "QUIET_DAY_FRI": "Fre",
+        "QUIET_DAY_SAT": "Lör",
+        "QUIET_DAY_SUN": "Sön",
+        "QUIET_WEEKDAYS": "Vardagar",
+        "QUIET_WEEKENDS": "Helger",
+        "QUIET_ALL_DAYS": "Alla dagar",
+        "QUIET_HINT": "Larm under tyst läge skickas som sammanfattning när tyst läge slutar.",
+        "QUIET_SUMMARY_TITLE": "⏱️ EggScan: Sammanfattning från tyst läge",
+        "QUIET_SUMMARY_COUNTS": "Antal",
+        "QUIET_SUMMARY_DEVICES": "Enheter",
+        "QUIET_SUMMARY_WINDOW": "Period",
+        "QUIET_SUMMARY_EVENTS": "Handelser",
+        "ALERT_TYPE_OFFLINE": "Offline",
+        "ALERT_TYPE_ONLINE_BACK": "Online igen",
+        "ALERT_TYPE_NEW_DEVICE": "Ny enhet",
+        "ALERT_TYPE_NEW_DEVICE_SUBNET": "Ny enhet i subnät",
+        "ALERT_TYPE_TEST": "Test",
+        "ALERT_TYPE_UNKNOWN": "Larm",
 
 
         "DISPLAY_TIMEZONE_HINT_UI": "Sparade tider är UTC. Den här inställningen påverkar bara hur tider visas i gränssnittet.",
@@ -519,6 +578,7 @@ TRANSLATIONS = {
         "SORT_MANUFACTURER": "Manufacturer",
         "SORT_UPDATED": "Updated",
         "SCAN_NOW": "Scan now",
+        "BACKUP_DB": "Backup database",
         "SCAN_RUNNING": "Scanning in progress…",
         "TABLE_IP": "IP",
         "TABLE_MAC": "MAC",
@@ -531,6 +591,7 @@ TRANSLATIONS = {
         "ALIAS_NONE": "No alias",
         "MANUFACTURER_UNKNOWN": "Unknown",
         "MARK_KNOWN": "Mark as known",
+        "MARK_ALL_NEW_KNOWN": "Mark all new as known",
         "DELETE": "Delete",
         "ALIAS_MODAL_TITLE": "Update Alias",
         "ALIAS_LABEL": "Alias",
@@ -610,6 +671,8 @@ TRANSLATIONS = {
         "FLASH_ALIAS_UPDATED": "Alias updated!",
         "FLASH_STATUS_ADMIN_ONLY": "Only admin can change status!",
         "FLASH_DEVICE_MARKED_KNOWN": "Device marked as known.",
+        "FLASH_ALL_NEW_MARKED_KNOWN": "{count} new devices marked as known.",
+        "FLASH_NO_NEW_DEVICES": "No new devices to mark.",
         "FLASH_CANNOT_PING_OFFLINE": "Cannot ping an offline device.",
         "FLASH_PING_OK": "Ping OK: {ip}",
         "FLASH_PING_FAIL": "Ping failed: {ip}",
@@ -631,6 +694,7 @@ TRANSLATIONS = {
         "FLASH_GUESSED_SUBNET_EXISTS": "Subnet {cidr} already exists!",
         "FLASH_SCAN_INTERVAL_INVALID": "Scan interval must be a positive integer.",
         "FLASH_SETTINGS_UPDATED": "Settings updated!",
+        "FLASH_DB_BACKUP_FAILED": "Could not create database backup: {error}",
         "FLASH_AJAX_MARK_KNOWN_FAIL": "Could not mark device as known.",
         "FLASH_AJAX_SUBNET_ORDER_FAIL": "Could not save subnet order.",
         "FLASH_AJAX_SCAN_STATUS_FAIL": "Could not fetch scan status. Refresh the page.",
@@ -657,8 +721,33 @@ TRANSLATIONS = {
         "CONFIG_SUBNET_VIEW_MODE_HINT": "Subnets are only shown if at least one subnet has a name.",
 
         "ALERTS_TITLE": "Alerts",
-        "ALERTS_DISCORD_ENABLE": "Enable Discord webhook",
+        "ALERTS_PROVIDER_LABEL": "Alert provider",
+        "ALERTS_PROVIDER_DISCORD": "Discord",
+        "ALERTS_PROVIDER_TELEGRAM": "Telegram",
+        "ALERTS_PROVIDER_SLACK": "Slack",
+        "ALERTS_PROVIDER_EMAIL": "Email",
+        "ALERTS_PROVIDER_TEAMS": "Teams",
+        "ALERTS_PROVIDER_PUSHOVER": "Pushover",
+        "ALERTS_PROVIDER_GOTIFY": "Gotify",
+        "ALERTS_PROVIDER_CUSTOM": "Custom (Apprise URL)",
+        "ALERTS_ENABLE_LABEL": "Enable alerts",
         "ALERTS_DISCORD_WEBHOOK": "Discord webhook URL",
+        "ALERTS_SLACK_WEBHOOK": "Slack webhook URL",
+        "ALERTS_TEAMS_WEBHOOK": "Teams webhook URL",
+        "ALERTS_TELEGRAM_BOT_TOKEN": "Telegram bot token",
+        "ALERTS_TELEGRAM_CHAT_ID": "Telegram chat ID",
+        "ALERTS_TELEGRAM_BOT_TOKEN_PLACEHOLDER": "123456:ABC-DEF...",
+        "ALERTS_TELEGRAM_CHAT_ID_PLACEHOLDER": "e.g. 123456789 or -100...",
+        "ALERTS_EMAIL_URL": "Email (Apprise URL)",
+        "ALERTS_EMAIL_URL_PLACEHOLDER": "mailto://user:pass@host/?to=you@example.com",
+        "ALERTS_PUSHOVER_USER": "Pushover user key",
+        "ALERTS_PUSHOVER_TOKEN": "Pushover app token",
+        "ALERTS_PUSHOVER_DEVICE": "Pushover device (optional)",
+        "ALERTS_GOTIFY_HOST": "Gotify host",
+        "ALERTS_GOTIFY_TOKEN": "Gotify app token",
+        "ALERTS_GOTIFY_HTTPS": "Use HTTPS",
+        "ALERTS_CUSTOM_URL": "Apprise URL",
+        "ALERTS_CUSTOM_URL_PLACEHOLDER": "e.g. discord://..., tgram://..., gotify://...",
         "ALERTS_OFFLINE_THRESHOLD": "Alert if offline longer than (minutes)",
         "ALERTS_SCOPE_LABEL": "Alert scope",
         "ALERTS_SCOPE_ALL": "All devices",
@@ -671,7 +760,7 @@ TRANSLATIONS = {
         "ALERTS_TEST_SENT": "Test alert sent!",
         "ALERTS_TEST_FAIL": "Could not send test alert: {error}",
         "ALERTS_NEW_DEVICE_SUBNET_HINT": "Leave empty to treat subnet alerts as “all subnets”. If you select subnets, only those will trigger new-device alerts.",
-        "ALERTS_NEW_DEVICE_TITLE": "New devices (Discord)",
+        "ALERTS_NEW_DEVICE_TITLE": "New devices",
         "ALERTS_NEW_DEVICE_OFF": "Off",
         "ALERTS_NEW_DEVICE_GLOBAL": "Global (only brand new device)",
         "ALERTS_NEW_DEVICE_SUBNETS": "Selected subnets only",
@@ -686,12 +775,39 @@ TRANSLATIONS = {
         "THEME_LIGHT": "Light",
         "THEME_COSMOS": "Cosmos",
         "ALERTS_DISCORD_WEBHOOK_PLACEHOLDER": "https://discord.com/api/webhooks/...",
-        "DISCORD_NEW_DEVICE_GLOBAL_TITLE": "🆕 EggScan: New device detected!",
-        "DISCORD_NEW_DEVICE_SUBNET_TITLE": "🆕 EggScan: New device in subnet!",
-        "DISCORD_LABEL_NAME": "Name",
-        "DISCORD_LABEL_MAC": "MAC",
-        "DISCORD_LABEL_IP": "IP",
-        "DISCORD_LABEL_SUBNET": "Subnet",
+        "ALERT_NEW_DEVICE_GLOBAL_TITLE": "🆕 EggScan: New device detected!",
+        "ALERT_NEW_DEVICE_SUBNET_TITLE": "🆕 EggScan: New device in subnet!",
+        "ALERT_LABEL_NAME": "Name",
+        "ALERT_LABEL_MAC": "MAC",
+        "ALERT_LABEL_IP": "IP",
+        "ALERT_LABEL_SUBNET": "Subnet",
+        "QUIET_TITLE": "Quiet hours",
+        "QUIET_ENABLE": "Enable quiet hours",
+        "QUIET_START": "Start time",
+        "QUIET_END": "End time",
+        "QUIET_DAYS": "Days",
+        "QUIET_DAY_MON": "Mon",
+        "QUIET_DAY_TUE": "Tue",
+        "QUIET_DAY_WED": "Wed",
+        "QUIET_DAY_THU": "Thu",
+        "QUIET_DAY_FRI": "Fri",
+        "QUIET_DAY_SAT": "Sat",
+        "QUIET_DAY_SUN": "Sun",
+        "QUIET_WEEKDAYS": "Weekdays",
+        "QUIET_WEEKENDS": "Weekends",
+        "QUIET_ALL_DAYS": "All days",
+        "QUIET_HINT": "Alerts during quiet hours are sent as a summary when quiet hours end.",
+        "QUIET_SUMMARY_TITLE": "⏱️ EggScan: Quiet hours summary",
+        "QUIET_SUMMARY_COUNTS": "Counts",
+        "QUIET_SUMMARY_DEVICES": "Devices",
+        "QUIET_SUMMARY_WINDOW": "Window",
+        "QUIET_SUMMARY_EVENTS": "Events",
+        "ALERT_TYPE_OFFLINE": "Offline",
+        "ALERT_TYPE_ONLINE_BACK": "Back online",
+        "ALERT_TYPE_NEW_DEVICE": "New device",
+        "ALERT_TYPE_NEW_DEVICE_SUBNET": "New device in subnet",
+        "ALERT_TYPE_TEST": "Test",
+        "ALERT_TYPE_UNKNOWN": "Alert",
 
         "DISPLAY_TIMEZONE_HINT_UI": "Stored timestamps are UTC. This setting only controls how times are shown in the UI.",
         "DISPLAY_TIMEZONE_PLACEHOLDER": "Start typing… (e.g. Europe/Stockholm)",
@@ -764,6 +880,257 @@ def get_alert_scope():
     return scope
 
 
+def get_notify_provider() -> str:
+    provider = str(get_setting("notify_provider", "")).strip().lower()
+    if provider in ("discord", "telegram", "slack", "email", "teams", "pushover", "gotify", "custom"):
+        return provider
+
+    legacy_discord_enabled = (get_setting("discord_enabled", "false") == "true")
+    if legacy_discord_enabled:
+        return "discord"
+    return "discord"
+
+
+def get_notify_enabled() -> bool:
+    raw = str(get_setting("notify_enabled", "")).strip().lower()
+    if raw in ("true", "false"):
+        return raw == "true"
+
+    legacy_discord_enabled = (get_setting("discord_enabled", "false") == "true")
+    return legacy_discord_enabled
+
+
+def parse_time_str(value: str, default_value: str) -> str:
+    raw = (value or "").strip()
+    try:
+        datetime.datetime.strptime(raw, "%H:%M")
+        return raw
+    except Exception:
+        return default_value
+
+
+def get_local_timezone():
+    display_tz = get_display_timezone()
+    if display_tz:
+        try:
+            return ZoneInfo(display_tz)
+        except Exception:
+            pass
+    return datetime.datetime.now().astimezone().tzinfo
+
+
+def get_quiet_settings():
+    enabled = get_bool_setting("quiet_enabled", default=False)
+    start_str = parse_time_str(str(get_setting("quiet_start", "22:00")), "22:00")
+    end_str = parse_time_str(str(get_setting("quiet_end", "07:00")), "07:00")
+    days_raw = str(get_setting("quiet_days", "0,1,2,3,4,5,6")).strip()
+    days = set()
+    for part in days_raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            v = int(part)
+            if 0 <= v <= 6:
+                days.add(v)
+        except Exception:
+            pass
+    if not days:
+        days = {0, 1, 2, 3, 4, 5, 6}
+    return enabled, start_str, end_str, days
+
+
+def is_quiet_now(now_local: datetime.datetime) -> bool:
+    enabled, start_str, end_str, days = get_quiet_settings()
+    if not enabled:
+        return False
+
+    try:
+        start_t = datetime.datetime.strptime(start_str, "%H:%M").time()
+        end_t = datetime.datetime.strptime(end_str, "%H:%M").time()
+    except Exception:
+        return False
+
+    if start_t == end_t:
+        return False
+
+    weekday = now_local.weekday()
+    prev_weekday = (weekday - 1) % 7
+    now_t = now_local.time()
+
+    if start_t < end_t:
+        return (weekday in days) and (start_t <= now_t < end_t)
+
+    return ((weekday in days) and (now_t >= start_t)) or ((prev_weekday in days) and (now_t < end_t))
+
+
+def get_last_quiet_window(now_local: datetime.datetime):
+    enabled, start_str, end_str, days = get_quiet_settings()
+    if not enabled:
+        return None
+
+    try:
+        start_t = datetime.datetime.strptime(start_str, "%H:%M").time()
+        end_t = datetime.datetime.strptime(end_str, "%H:%M").time()
+    except Exception:
+        return None
+
+    if start_t == end_t:
+        return None
+
+    best_start = None
+    best_end = None
+
+    for offset in range(0, 8):
+        day = now_local.date() - datetime.timedelta(days=offset)
+        if day.weekday() not in days:
+            continue
+        start_dt = datetime.datetime.combine(day, start_t, tzinfo=now_local.tzinfo)
+        end_dt = datetime.datetime.combine(day, end_t, tzinfo=now_local.tzinfo)
+        if end_dt <= start_dt:
+            end_dt += datetime.timedelta(days=1)
+        if end_dt <= now_local:
+            if best_end is None or end_dt > best_end:
+                best_start = start_dt
+                best_end = end_dt
+
+    if not best_start or not best_end:
+        return None
+    return best_start, best_end
+
+
+def get_alert_type_label(alert_type: str) -> str:
+    mapping = {
+        "offline": "ALERT_TYPE_OFFLINE",
+        "online_back": "ALERT_TYPE_ONLINE_BACK",
+        "new_device": "ALERT_TYPE_NEW_DEVICE",
+        "new_device_subnet": "ALERT_TYPE_NEW_DEVICE_SUBNET",
+        "test": "ALERT_TYPE_TEST",
+    }
+    return t(mapping.get(alert_type, "ALERT_TYPE_UNKNOWN"))
+
+
+def chunk_lines(lines: list[str], chunk_size: int) -> list[list[str]]:
+    if chunk_size <= 0:
+        return [lines]
+    out = []
+    for i in range(0, len(lines), chunk_size):
+        out.append(lines[i:i + chunk_size])
+    return out
+
+
+def send_quiet_digest_if_needed():
+    provider = get_notify_provider()
+    enabled = get_notify_enabled()
+    notify_url = get_notify_url()
+    if not enabled or not notify_url:
+        return
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    tz = get_local_timezone()
+    now_local = now_utc.astimezone(tz)
+
+    quiet_now = is_quiet_now(now_local)
+    prev_state = str(get_setting("quiet_state", "open")).strip().lower()
+
+    if quiet_now:
+        if prev_state != "quiet":
+            set_setting("quiet_state", "quiet")
+        return
+
+    if prev_state != "quiet":
+        if prev_state != "open":
+            set_setting("quiet_state", "open")
+        return
+
+    window = get_last_quiet_window(now_local)
+    set_setting("quiet_state", "open")
+    if not window:
+        return
+
+    start_local, end_local = window
+    start_utc = start_local.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    end_utc = end_local.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+
+    last_end_raw = str(get_setting("quiet_last_end", "")).strip()
+    if last_end_raw:
+        try:
+            last_end = datetime.datetime.fromisoformat(last_end_raw)
+            if last_end >= end_utc:
+                return
+        except Exception:
+            pass
+
+    rows = (
+        AlertLog.query
+        .filter(AlertLog.status == "muted")
+        .filter(AlertLog.created_at >= start_utc)
+        .filter(AlertLog.created_at < end_utc)
+        .order_by(AlertLog.created_at.asc())
+        .all()
+    )
+
+    set_setting("quiet_last_end", end_utc.replace(microsecond=0).isoformat())
+
+    if not rows:
+        return
+
+    counts = {}
+    event_lines = []
+    tz_name = get_display_timezone()
+    for r in rows:
+        counts[r.alert_type] = counts.get(r.alert_type, 0) + 1
+        label = (r.device_label or r.mac_address or "-").strip()
+        when_local = format_local(r.created_at, tz_name)
+        type_label = get_alert_type_label(r.alert_type)
+        event_lines.append(f"- [{when_local}] {type_label}: {label}")
+
+    summary_lines = []
+    for k in ("offline", "online_back", "new_device", "new_device_subnet", "test"):
+        if k in counts:
+            summary_lines.append(f"{get_alert_type_label(k)}: {counts[k]}")
+    for k, v in counts.items():
+        if k in ("offline", "online_back", "new_device", "new_device_subnet", "test"):
+            continue
+        summary_lines.append(f"{get_alert_type_label(k)}: {v}")
+
+    start_local_text = start_local.strftime("%Y-%m-%d %H:%M")
+    end_local_text = end_local.strftime("%Y-%m-%d %H:%M")
+    msg = f"{t('QUIET_SUMMARY_TITLE')}\n"
+    msg += f"{t('QUIET_SUMMARY_WINDOW')}: {start_local_text} -> {end_local_text}\n"
+    if summary_lines:
+        msg += f"{t('QUIET_SUMMARY_COUNTS')}: " + ", ".join(summary_lines) + "\n"
+    if event_lines:
+        msg += f"{t('QUIET_SUMMARY_EVENTS')}: {len(event_lines)}"
+
+    event_chunks = chunk_lines(event_lines, 25)
+    messages = [msg]
+    if event_chunks:
+        total_parts = len(event_chunks)
+        for idx, chunk in enumerate(event_chunks, start=1):
+            header = f"{t('QUIET_SUMMARY_EVENTS')} ({idx}/{total_parts})"
+            messages.append(header + "\n" + "\n".join(chunk))
+
+    try:
+        for m in messages:
+            send_apprise_notification(notify_url, m)
+        log_alert("quiet_digest", provider, "sent", device=None, details={
+            "count": len(rows),
+            "start_utc": start_utc.replace(microsecond=0).isoformat(),
+            "end_utc": end_utc.replace(microsecond=0).isoformat(),
+            "parts": len(messages),
+        })
+    except Exception as e:
+        err = str(e)
+        try:
+            log_alert("quiet_digest", provider, "failed", device=None, details={
+                "count": len(rows),
+                "start_utc": start_utc.replace(microsecond=0).isoformat(),
+                "end_utc": end_utc.replace(microsecond=0).isoformat(),
+                "parts": len(messages),
+            }, error=err, dedupe_key=None)
+        except Exception:
+            db.session.rollback()
 def get_language():
     lang = get_setting("language", "sv")
     if lang not in ("sv", "en"):
@@ -1058,6 +1425,27 @@ def release_scan_lock(token: str) -> None:
                 pass
 
 
+def get_effective_scan_status() -> str:
+    status = str(get_setting("scan_status", "done")).strip().lower()
+    if status != "running":
+        return "done" if status not in ("done", "running") else status
+
+    now = utc_now()
+    lock_token = str(get_setting(SCAN_LOCK_KEY, "")).strip()
+    lock_until = _parse_iso(str(get_setting(SCAN_LOCK_UNTIL_KEY, "")).strip())
+
+    # If UI says running but lock is missing/expired, self-heal stale state.
+    if not lock_token or not lock_until or lock_until <= now:
+        set_settings_bulk({
+            "scan_status": "done",
+            SCAN_LOCK_KEY: "",
+            SCAN_LOCK_UNTIL_KEY: "",
+        })
+        return "done"
+
+    return "running"
+
+
 def guess_network_range():
     try:
         result = subprocess.run(["ip", "route", "show", "default"],
@@ -1113,39 +1501,83 @@ def discover_ipv6_neighbors():
     return mac_to_v6
 
 
-def send_discord_webhook(webhook_url: str, content: str) -> None:
-    webhook_url = (webhook_url or "").strip()
-    if not webhook_url:
-        raise Exception("Missing webhook URL")
+def build_apprise_url(provider: str, fields: dict) -> str:
+    provider = (provider or "").strip().lower()
 
-    payload_obj = {"content": content}
-    payload = json.dumps(payload_obj).encode("utf-8")
+    if provider == "discord":
+        webhook = (fields.get("discord_webhook_url") or "").strip()
+        return webhook
 
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "EggScan/1.0 (+local)",
-        "Accept": "application/json",
-    }
+    if provider == "telegram":
+        token = (fields.get("telegram_bot_token") or "").strip()
+        chat_id = (fields.get("telegram_chat_id") or "").strip()
+        if not token:
+            return ""
+        return f"tgram://{token}/{chat_id}" if chat_id else f"tgram://{token}/"
 
-    req = urllib.request.Request(
-        webhook_url,
-        data=payload,
-        headers=headers,
-        method="POST"
-    )
+    if provider == "slack":
+        webhook = (fields.get("slack_webhook_url") or "").strip()
+        return webhook
 
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            _ = resp.read()
-    except urllib.error.HTTPError as e:
-        body = ""
-        try:
-            body = e.read().decode("utf-8", errors="replace")
-        except Exception:
-            body = ""
-        raise Exception(f"HTTP {e.code} {e.reason} | body={body}") from None
-    except urllib.error.URLError as e:
-        raise Exception(f"URL error: {e}") from None
+    if provider == "teams":
+        webhook = (fields.get("teams_webhook_url") or "").strip()
+        return webhook
+
+    if provider == "email":
+        return (fields.get("email_url") or "").strip()
+
+    if provider == "pushover":
+        user_key = (fields.get("pushover_user") or "").strip()
+        api_token = (fields.get("pushover_token") or "").strip()
+        device = (fields.get("pushover_device") or "").strip()
+        if not user_key or not api_token:
+            return ""
+        if device:
+            device_path = "/".join([d.strip() for d in device.split(",") if d.strip()])
+            return f"pover://{user_key}@{api_token}/{device_path}"
+        return f"pover://{user_key}@{api_token}"
+
+    if provider == "gotify":
+        host = (fields.get("gotify_host") or "").strip()
+        token = (fields.get("gotify_token") or "").strip()
+        use_https = str(fields.get("gotify_https") or "true").strip().lower() == "true"
+        if not host or not token:
+            return ""
+        host = host.replace("https://", "").replace("http://", "").strip()
+        scheme = "gotifys" if use_https else "gotify"
+        return f"{scheme}://{host.rstrip('/')}/{token}"
+
+    if provider == "custom":
+        return (fields.get("custom_url") or "").strip()
+
+    return ""
+
+
+def send_apprise_notification(url: str, content: str) -> None:
+    url = (url or "").strip()
+    if not url:
+        raise Exception("Missing notification URL")
+
+    apobj = apprise.Apprise()
+    if not apobj.add(url):
+        raise Exception("Invalid notification URL")
+
+    ok = apobj.notify(body=content, title="EggScan")
+    if not ok:
+        raise Exception("Notification failed")
+
+
+def get_notify_url() -> str:
+    url = str(get_setting("notify_url", "")).strip()
+    if url:
+        return url
+
+    legacy_enabled = (get_setting("discord_enabled", "false") == "true")
+    legacy_webhook = str(get_setting("discord_webhook_url", "")).strip()
+    if legacy_enabled and legacy_webhook:
+        return legacy_webhook
+
+    return ""
 
 
 def device_display_name(dev: Device) -> str:
@@ -1257,9 +1689,10 @@ def log_alert(
 
 
 def send_new_device_alert_if_enabled(dev: Device, subnet: Optional[SubNetwork]):
-    discord_enabled = get_bool_setting("discord_enabled", default=False)
-    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
-    if not discord_enabled or not webhook_url:
+    provider = get_notify_provider()
+    enabled = get_notify_enabled()
+    notify_url = get_notify_url()
+    if not enabled or not notify_url:
         return
 
     mode = get_new_device_alert_mode()
@@ -1277,18 +1710,18 @@ def send_new_device_alert_if_enabled(dev: Device, subnet: Optional[SubNetwork]):
         dedupe_key = make_new_device_dedupe_key(mac_lower)
 
         already = AlertLog.query.filter_by(dedupe_key=dedupe_key).first()
-        if not (already and already.status == "sent"):
+        if not (already and already.status in ("sent", "muted")):
             subnet_label = "-"
             subnet_cidr = "-"
             if subnet:
                 subnet_cidr = subnet.cidr or "-"
                 subnet_label = (subnet.label.strip() if subnet.label and subnet.label.strip() else "-")
             msg = (
-                f"{t('DISCORD_NEW_DEVICE_GLOBAL_TITLE')}\n"
-                f"{t('DISCORD_LABEL_NAME')}: {device_display_name(dev)}\n"
-                f"{t('DISCORD_LABEL_MAC')}: {mac_lower}\n"
-                f"{t('DISCORD_LABEL_IP')}: {dev.ip_address or '-'}\n"
-                f"{t('DISCORD_LABEL_SUBNET')}: {subnet_label} ({subnet_cidr})"
+                f"{t('ALERT_NEW_DEVICE_GLOBAL_TITLE')}\n"
+                f"{t('ALERT_LABEL_NAME')}: {device_display_name(dev)}\n"
+                f"{t('ALERT_LABEL_MAC')}: {mac_lower}\n"
+                f"{t('ALERT_LABEL_IP')}: {dev.ip_address or '-'}\n"
+                f"{t('ALERT_LABEL_SUBNET')}: {subnet_label} ({subnet_cidr})"
 )
            
             
@@ -1307,12 +1740,16 @@ def send_new_device_alert_if_enabled(dev: Device, subnet: Optional[SubNetwork]):
             }
 
             try:
-                send_discord_webhook(webhook_url, msg)
-                log_alert("new_device", "discord", "sent", device=dev, details=details, dedupe_key=dedupe_key)
+                now_local = datetime.datetime.now(datetime.timezone.utc).astimezone(get_local_timezone())
+                if is_quiet_now(now_local):
+                    log_alert("new_device", provider, "muted", device=dev, details=details, error="quiet_hours", dedupe_key=dedupe_key)
+                else:
+                    send_apprise_notification(notify_url, msg)
+                    log_alert("new_device", provider, "sent", device=dev, details=details, dedupe_key=dedupe_key)
             except Exception as e:
                 err = str(e)
                 try:
-                    log_alert("new_device", "discord", "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
+                    log_alert("new_device", provider, "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
                 except Exception:
                     db.session.rollback()
 
@@ -1328,17 +1765,17 @@ def send_new_device_alert_if_enabled(dev: Device, subnet: Optional[SubNetwork]):
         dedupe_key = make_new_device_subnet_dedupe_key(mac_lower, subnet.id)
 
         already = AlertLog.query.filter_by(dedupe_key=dedupe_key).first()
-        if already and already.status == "sent":
+        if already and already.status in ("sent", "muted"):
             return
 
         subnet_label = (subnet.label.strip() if subnet.label and subnet.label.strip() else subnet.cidr)
 
         msg = (
-            f"{t('DISCORD_NEW_DEVICE_SUBNET_TITLE')}\n"
-            f"{t('DISCORD_LABEL_SUBNET')}: {subnet_label}\n"
-            f"{t('DISCORD_LABEL_NAME')}: {device_display_name(dev)}\n"
-            f"{t('DISCORD_LABEL_MAC')}: {mac_lower}\n"
-            f"{t('DISCORD_LABEL_IP')}: {dev.ip_address or '-'}"
+            f"{t('ALERT_NEW_DEVICE_SUBNET_TITLE')}\n"
+            f"{t('ALERT_LABEL_SUBNET')}: {subnet_label}\n"
+            f"{t('ALERT_LABEL_NAME')}: {device_display_name(dev)}\n"
+            f"{t('ALERT_LABEL_MAC')}: {mac_lower}\n"
+            f"{t('ALERT_LABEL_IP')}: {dev.ip_address or '-'}"
         )       
 
         details = {
@@ -1354,20 +1791,25 @@ def send_new_device_alert_if_enabled(dev: Device, subnet: Optional[SubNetwork]):
         }
 
         try:
-            send_discord_webhook(webhook_url, msg)
-            log_alert("new_device_subnet", "discord", "sent", device=dev, details=details, dedupe_key=dedupe_key)
+            now_local = datetime.datetime.now(datetime.timezone.utc).astimezone(get_local_timezone())
+            if is_quiet_now(now_local):
+                log_alert("new_device_subnet", provider, "muted", device=dev, details=details, error="quiet_hours", dedupe_key=dedupe_key)
+            else:
+                send_apprise_notification(notify_url, msg)
+                log_alert("new_device_subnet", provider, "sent", device=dev, details=details, dedupe_key=dedupe_key)
         except Exception as e:
             err = str(e)
             try:
-                log_alert("new_device_subnet", "discord", "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
+                log_alert("new_device_subnet", provider, "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
             except Exception:
                 db.session.rollback()
 
 
 def evaluate_offline_alerts(current_scan_id: str):
-    discord_enabled = get_bool_setting("discord_enabled", default=False)
-    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
-    if not discord_enabled or not webhook_url:
+    provider = get_notify_provider()
+    enabled = get_notify_enabled()
+    notify_url = get_notify_url()
+    if not enabled or not notify_url:
         return
 
     default_threshold = get_int_setting("offline_threshold_minutes", 60)
@@ -1396,7 +1838,7 @@ def evaluate_offline_alerts(current_scan_id: str):
         dedupe_key = make_offline_dedupe_key(dev)
 
         already = AlertLog.query.filter_by(dedupe_key=dedupe_key).first()
-        if already and already.status == "sent":
+        if already and already.status in ("sent", "muted"):
             continue
 
         msg = f"🔴 EggScan alert: {device_display_name(dev)} is offline "
@@ -1412,20 +1854,25 @@ def evaluate_offline_alerts(current_scan_id: str):
         }
 
         try:
-            send_discord_webhook(webhook_url, msg)
-            log_alert("offline", "discord", "sent", device=dev, details=details, dedupe_key=dedupe_key)
+            now_local = datetime.datetime.now(datetime.timezone.utc).astimezone(get_local_timezone())
+            if is_quiet_now(now_local):
+                log_alert("offline", provider, "muted", device=dev, details=details, error="quiet_hours", dedupe_key=dedupe_key)
+            else:
+                send_apprise_notification(notify_url, msg)
+                log_alert("offline", provider, "sent", device=dev, details=details, dedupe_key=dedupe_key)
         except Exception as e:
             err = str(e)
             try:
-                log_alert("offline", "discord", "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
+                log_alert("offline", provider, "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
             except Exception:
                 db.session.rollback()
 
 
 def evaluate_online_recovery_alerts(current_scan_id: str):
-    discord_enabled = get_bool_setting("discord_enabled", default=False)
-    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
-    if not discord_enabled or not webhook_url:
+    provider = get_notify_provider()
+    enabled = get_notify_enabled()
+    notify_url = get_notify_url()
+    if not enabled or not notify_url:
         return
 
     now_utc = utc_now()
@@ -1437,7 +1884,9 @@ def evaluate_online_recovery_alerts(current_scan_id: str):
 
         last_offline = (
             AlertLog.query
-            .filter_by(alert_type="offline", device_id=dev.id, status="sent")
+            .filter(AlertLog.alert_type == "offline")
+            .filter(AlertLog.device_id == dev.id)
+            .filter(AlertLog.status.in_(("sent", "muted")))
             .order_by(AlertLog.created_at.desc())
             .first()
         )
@@ -1448,7 +1897,7 @@ def evaluate_online_recovery_alerts(current_scan_id: str):
         online_dedupe_key = make_online_recovery_dedupe_key(dev, offline_dedupe_key)
 
         already = AlertLog.query.filter_by(dedupe_key=online_dedupe_key).first()
-        if already and already.status == "sent":
+        if already and already.status in ("sent", "muted"):
             continue
 
         offline_start = None
@@ -1483,21 +1932,33 @@ def evaluate_online_recovery_alerts(current_scan_id: str):
         }
 
         try:
-            send_discord_webhook(webhook_url, msg)
-            log_alert(
-                "online_back",
-                "discord",
-                "sent",
-                device=dev,
-                details=details,
-                dedupe_key=online_dedupe_key
-            )
+            now_local = datetime.datetime.now(datetime.timezone.utc).astimezone(get_local_timezone())
+            if is_quiet_now(now_local):
+                log_alert(
+                    "online_back",
+                    provider,
+                    "muted",
+                    device=dev,
+                    details=details,
+                    error="quiet_hours",
+                    dedupe_key=online_dedupe_key
+                )
+            else:
+                send_apprise_notification(notify_url, msg)
+                log_alert(
+                    "online_back",
+                    provider,
+                    "sent",
+                    device=dev,
+                    details=details,
+                    dedupe_key=online_dedupe_key
+                )
         except Exception as e:
             err = str(e)
             try:
                 log_alert(
                     "online_back",
-                    "discord",
+                    provider,
                     "failed",
                     device=dev,
                     details=details,
@@ -1747,6 +2208,7 @@ def nmap_scan_and_save():
         try:
             evaluate_offline_alerts(current_scan_id)
             evaluate_online_recovery_alerts(current_scan_id)
+            send_quiet_digest_if_needed()
         except Exception as e:
             print("Alert evaluation error:", e)
         finally:
@@ -1762,10 +2224,28 @@ def run_scan_worker():
     - Scan-now requests från webben via Settings-flagga
     - Aldrig parallella scans (DB-lås)
     """
+    # Worker restart should never leave stale "running" state in UI.
+    with app.app_context():
+        set_settings_bulk({
+            "scan_status": "done",
+            SCAN_LOCK_KEY: "",
+            SCAN_LOCK_UNTIL_KEY: "",
+        })
+
     next_run = utc_now()
+    next_quiet_check = utc_now()
+    quiet_check_interval_seconds = 15
 
     while True:
         with app.app_context():
+            now = utc_now()
+            if now >= next_quiet_check:
+                try:
+                    send_quiet_digest_if_needed()
+                except Exception as e:
+                    print("Quiet digest check error:", e)
+                next_quiet_check = now + datetime.timedelta(seconds=quiet_check_interval_seconds)
+
             interval_str = str(get_setting("scan_interval", "5")).strip()
             try:
                 interval_minutes = int(interval_str)
@@ -1918,7 +2398,7 @@ def change_password():
 @app.route("/")
 @login_required
 def index():
-    scan_status = get_setting("scan_status", "done")
+    scan_status = get_effective_scan_status()
     last_scan_id = get_setting("last_scan_id", "")
     highlight_new = (get_setting("highlight_new", "false") == "true")
 
@@ -2140,7 +2620,7 @@ def index():
 
 @app.route("/scan_status", methods=["GET"])
 def get_scan_status():
-    status = get_setting("scan_status", "done")
+    status = get_effective_scan_status()
     return jsonify({"status": status})
 
 
@@ -2229,6 +2709,79 @@ def mark_known(device_id):
         return jsonify({"ok": True, "device_id": device_id, "changed": changed}), 200
 
     return redirect(url_for("index"))
+
+
+@app.route("/mark_known_all", methods=["POST"])
+@login_required
+def mark_known_all():
+    if not current_user.is_admin:
+        flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    changed_count = (
+        Device.query
+        .filter(Device.is_new.is_(True))
+        .update({Device.is_new: False}, synchronize_session=False)
+    )
+    db.session.commit()
+
+    if changed_count > 0:
+        flash(tf("FLASH_ALL_NEW_MARKED_KNOWN", count=changed_count), "success")
+    else:
+        flash(t("FLASH_NO_NEW_DEVICES"), "info")
+
+    return redirect(url_for("index"))
+
+
+@app.route("/backup_db", methods=["POST"])
+@login_required
+def backup_db():
+    if not current_user.is_admin:
+        flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    src_conn = None
+    dst_conn = None
+    temp_path = None
+
+    try:
+        fd, temp_path = tempfile.mkstemp(prefix="eggscan_backup_", suffix=".db")
+        os.close(fd)
+
+        src_conn = sqlite3.connect(f"file:{DB_FILE}?mode=ro", uri=True, timeout=30)
+        dst_conn = sqlite3.connect(temp_path, timeout=30)
+        src_conn.backup(dst_conn)
+        dst_conn.commit()
+
+        with open(temp_path, "rb") as f:
+            payload = f.read()
+    except Exception as e:
+        flash(tf("FLASH_DB_BACKUP_FAILED", error=str(e)), "danger")
+        return redirect(url_for("index"))
+    finally:
+        try:
+            if dst_conn is not None:
+                dst_conn.close()
+        except Exception:
+            pass
+        try:
+            if src_conn is not None:
+                src_conn.close()
+        except Exception:
+            pass
+        try:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
+
+    fname = f"eggscan_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    return send_file(
+        io.BytesIO(payload),
+        as_attachment=True,
+        download_name=fname,
+        mimetype="application/octet-stream"
+    )
 
 
 @app.route("/ping_device/<int:device_id>", methods=["POST"])
@@ -2406,8 +2959,107 @@ def config_eggscan():
             language = request.form.get("language", "").strip()
             view_mode = request.form.get("subnet_view_mode", "column").strip().lower()
 
-            discord_enabled = (request.form.get("discord_enabled") == "on")
-            discord_webhook_url = request.form.get("discord_webhook_url", "").strip()
+            notify_provider = request.form.get("notify_provider", "discord").strip().lower()
+            allowed_providers = {"discord", "telegram", "slack", "email", "teams", "pushover", "gotify", "custom"}
+            if notify_provider not in allowed_providers:
+                notify_provider = "discord"
+
+            notify_enabled = (request.form.get("notify_enabled") == "on")
+
+            def form_value(name: str, default_value: str) -> str:
+                val = request.form.get(name)
+                if val is None:
+                    return default_value
+                return val.strip()
+
+            discord_webhook_url = form_value(
+                "discord_webhook_url",
+                str(get_setting("discord_webhook_url", "")).strip()
+            )
+            telegram_bot_token = form_value(
+                "telegram_bot_token",
+                str(get_setting("telegram_bot_token", "")).strip()
+            )
+            telegram_chat_id = form_value(
+                "telegram_chat_id",
+                str(get_setting("telegram_chat_id", "")).strip()
+            )
+            slack_webhook_url = form_value(
+                "slack_webhook_url",
+                str(get_setting("slack_webhook_url", "")).strip()
+            )
+            teams_webhook_url = form_value(
+                "teams_webhook_url",
+                str(get_setting("teams_webhook_url", "")).strip()
+            )
+            email_url = form_value(
+                "email_url",
+                str(get_setting("email_url", "")).strip()
+            )
+            pushover_user = form_value(
+                "pushover_user",
+                str(get_setting("pushover_user", "")).strip()
+            )
+            pushover_token = form_value(
+                "pushover_token",
+                str(get_setting("pushover_token", "")).strip()
+            )
+            pushover_device = form_value(
+                "pushover_device",
+                str(get_setting("pushover_device", "")).strip()
+            )
+            gotify_host = form_value(
+                "gotify_host",
+                str(get_setting("gotify_host", "")).strip()
+            )
+            gotify_token = form_value(
+                "gotify_token",
+                str(get_setting("gotify_token", "")).strip()
+            )
+            gotify_https_existing = (str(get_setting("gotify_https", "true")).strip().lower() == "true")
+            gotify_https = gotify_https_existing
+            if request.form.get("gotify_https") is not None:
+                gotify_https = (request.form.get("gotify_https") == "on")
+            custom_url = form_value(
+                "custom_url",
+                str(get_setting("custom_url", "")).strip()
+            )
+
+            quiet_enabled = (request.form.get("quiet_enabled") == "on")
+            quiet_start = parse_time_str(request.form.get("quiet_start", "22:00"), "22:00")
+            quiet_end = parse_time_str(request.form.get("quiet_end", "07:00"), "07:00")
+            quiet_days_list = request.form.getlist("quiet_days")
+            quiet_days = []
+            for d in quiet_days_list:
+                d = str(d).strip()
+                if not d:
+                    continue
+                try:
+                    v = int(d)
+                    if 0 <= v <= 6:
+                        quiet_days.append(v)
+                except Exception:
+                    pass
+            if not quiet_days:
+                quiet_days = [0, 1, 2, 3, 4, 5, 6]
+
+            fields = {
+                "discord_webhook_url": discord_webhook_url,
+                "telegram_bot_token": telegram_bot_token,
+                "telegram_chat_id": telegram_chat_id,
+                "slack_webhook_url": slack_webhook_url,
+                "teams_webhook_url": teams_webhook_url,
+                "email_url": email_url,
+                "pushover_user": pushover_user,
+                "pushover_token": pushover_token,
+                "pushover_device": pushover_device,
+                "gotify_host": gotify_host,
+                "gotify_token": gotify_token,
+                "gotify_https": "true" if gotify_https else "false",
+                "custom_url": custom_url,
+            }
+            notify_url = build_apprise_url(notify_provider, fields)
+
             offline_threshold_minutes = request.form.get("offline_threshold_minutes", "60").strip()
 
             alert_scope = request.form.get("alert_scope", "all").strip().lower()
@@ -2451,8 +3103,26 @@ def config_eggscan():
                 "highlight_new": "true" if highlight_new else "false",
                 "ipv6_utils": ipv6_utils,
                 "subnet_view_mode": view_mode,
-                "discord_enabled": "true" if discord_enabled else "false",
+                "notify_provider": notify_provider,
+                "notify_enabled": "true" if notify_enabled else "false",
+                "notify_url": notify_url,
                 "discord_webhook_url": discord_webhook_url,
+                "telegram_bot_token": telegram_bot_token,
+                "telegram_chat_id": telegram_chat_id,
+                "slack_webhook_url": slack_webhook_url,
+                "teams_webhook_url": teams_webhook_url,
+                "email_url": email_url,
+                "pushover_user": pushover_user,
+                "pushover_token": pushover_token,
+                "pushover_device": pushover_device,
+                "gotify_host": gotify_host,
+                "gotify_token": gotify_token,
+                "gotify_https": "true" if gotify_https else "false",
+                "custom_url": custom_url,
+                "quiet_enabled": "true" if quiet_enabled else "false",
+                "quiet_start": quiet_start,
+                "quiet_end": quiet_end,
+                "quiet_days": ",".join([str(x) for x in sorted(set(quiet_days))]),
                 "offline_threshold_minutes": offline_threshold_minutes,
                 "alert_scope": alert_scope,
                 "display_timezone": display_timezone,
@@ -2521,8 +3191,40 @@ def config_eggscan():
 
     display_tz = get_display_timezone()
 
-    discord_enabled = (get_setting("discord_enabled", "false") == "true")
+    notify_provider = get_notify_provider()
+    notify_enabled = get_notify_enabled()
+    notify_url = get_notify_url()
+
     discord_webhook_url = get_setting("discord_webhook_url", "")
+    telegram_bot_token = get_setting("telegram_bot_token", "")
+    telegram_chat_id = get_setting("telegram_chat_id", "")
+    slack_webhook_url = get_setting("slack_webhook_url", "")
+    teams_webhook_url = get_setting("teams_webhook_url", "")
+    email_url = get_setting("email_url", "")
+    pushover_user = get_setting("pushover_user", "")
+    pushover_token = get_setting("pushover_token", "")
+    pushover_device = get_setting("pushover_device", "")
+    gotify_host = get_setting("gotify_host", "")
+    gotify_token = get_setting("gotify_token", "")
+    gotify_https = (str(get_setting("gotify_https", "true")).strip().lower() == "true")
+    custom_url = get_setting("custom_url", "")
+    quiet_enabled = (get_setting("quiet_enabled", "false") == "true")
+    quiet_start = get_setting("quiet_start", "22:00")
+    quiet_end = get_setting("quiet_end", "07:00")
+    quiet_days_raw = str(get_setting("quiet_days", "0,1,2,3,4,5,6")).strip()
+    quiet_days = set()
+    for part in quiet_days_raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            v = int(part)
+            if 0 <= v <= 6:
+                quiet_days.add(v)
+        except Exception:
+            pass
+    if not quiet_days:
+        quiet_days = {0, 1, 2, 3, 4, 5, 6}
     offline_threshold_minutes = get_setting("offline_threshold_minutes", "60")
     alert_scope = get_alert_scope()
 
@@ -2552,8 +3254,26 @@ def config_eggscan():
         lang=lang,
         version=APP_VERSION,
         theme=theme,
-        discord_enabled=discord_enabled,
+        notify_provider=notify_provider,
+        notify_enabled=notify_enabled,
+        notify_url=notify_url,
         discord_webhook_url=discord_webhook_url,
+        telegram_bot_token=telegram_bot_token,
+        telegram_chat_id=telegram_chat_id,
+        slack_webhook_url=slack_webhook_url,
+        teams_webhook_url=teams_webhook_url,
+        email_url=email_url,
+        pushover_user=pushover_user,
+        pushover_token=pushover_token,
+        pushover_device=pushover_device,
+        gotify_host=gotify_host,
+        gotify_token=gotify_token,
+        gotify_https=gotify_https,
+        custom_url=custom_url,
+        quiet_enabled=quiet_enabled,
+        quiet_start=quiet_start,
+        quiet_end=quiet_end,
+        quiet_days=quiet_days,
         offline_threshold_minutes=offline_threshold_minutes,
         alert_scope=alert_scope,
         all_devices=all_devices,
@@ -2603,32 +3323,39 @@ def update_subnet_order():
     return jsonify({"ok": True})
 
 
-@app.route("/test_discord", methods=["POST"])
+@app.route("/test_alert", methods=["POST"])
 @login_required
-def test_discord():
+def test_alert():
     if not current_user.is_admin:
         return redirect(url_for("index"))
 
-    discord_enabled = get_bool_setting("discord_enabled", default=False)
-    webhook_url = str(get_setting("discord_webhook_url", "")).strip()
+    provider = get_notify_provider()
+    enabled = get_notify_enabled()
+    notify_url = get_notify_url()
 
-    if not discord_enabled or not webhook_url:
-        flash(t("ALERTS_TEST_FAIL").format(error="Discord not enabled or webhook URL missing"), "warning")
+    if not enabled or not notify_url:
+        flash(t("ALERTS_TEST_FAIL").format(error="Alerts not enabled or settings missing"), "warning")
         return redirect(url_for("config_eggscan"))
 
     try:
-        send_discord_webhook(webhook_url, "✅ EggScan test alert: Discord webhook is working.")
-        log_alert("test", "discord", "sent", device=None, details={"message": "test"})
+        send_apprise_notification(notify_url, "✅ EggScan test alert: notification is working.")
+        log_alert("test", provider, "sent", device=None, details={"message": "test"})
         flash(t("ALERTS_TEST_SENT"), "success")
     except Exception as e:
         err = str(e)
         try:
-            log_alert("test", "discord", "failed", device=None, details={"message": "test"}, error=err, dedupe_key=None)
+            log_alert("test", provider, "failed", device=None, details={"message": "test"}, error=err, dedupe_key=None)
         except Exception:
             db.session.rollback()
         flash(tf("ALERTS_TEST_FAIL", error=err), "danger")
 
     return redirect(url_for("config_eggscan"))
+
+
+@app.route("/test_discord", methods=["POST"])
+@login_required
+def test_discord():
+    return test_alert()
 
 
 # ---------------------------

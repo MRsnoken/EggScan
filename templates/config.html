@@ -143,24 +143,187 @@
 
         <h5 class="mb-3">{{ t("ALERTS_TITLE") }}</h5>
 
+        {% set active_provider = notify_provider %}
+        {% set alert_enabled = notify_enabled %}
+
         <div class="mb-4 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
+          <div class="form-group mb-3">
+            <label>{{ t("ALERTS_PROVIDER_LABEL") }}</label>
+            <select id="alertProvider" name="notify_provider" form="settingsForm" class="form-control">
+              <option value="discord" {% if active_provider == 'discord' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_DISCORD") }}</option>
+              <option value="telegram" {% if active_provider == 'telegram' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_TELEGRAM") }}</option>
+              <option value="slack" {% if active_provider == 'slack' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_SLACK") }}</option>
+              <option value="email" {% if active_provider == 'email' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_EMAIL") }}</option>
+              <option value="teams" {% if active_provider == 'teams' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_TEAMS") }}</option>
+              <option value="pushover" {% if active_provider == 'pushover' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_PUSHOVER") }}</option>
+              <option value="gotify" {% if active_provider == 'gotify' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_GOTIFY") }}</option>
+              <option value="custom" {% if active_provider == 'custom' %}selected{% endif %}>{{ t("ALERTS_PROVIDER_CUSTOM") }}</option>
+            </select>
+          </div>
+
           <div class="d-flex align-items-center mb-3">
-            <span class="mr-2">{{ t("ALERTS_DISCORD_ENABLE") }}</span>
+            <span class="mr-2">{{ t("ALERTS_ENABLE_LABEL") }}</span>
             <label class="toggle-switch mb-0">
-              <input type="checkbox" name="discord_enabled" form="settingsForm" {% if discord_enabled %}checked{% endif %}>
+              <input
+                type="checkbox"
+                id="notifyEnabledToggle"
+                name="notify_enabled"
+                form="settingsForm"
+                {% if alert_enabled %}checked{% endif %}
+              >
               <span class="toggle-slider"></span>
             </label>
           </div>
 
-          <div class="form-group mb-3">
+          <div id="discordWebhookBlock" class="form-group mb-3 {% if active_provider != 'discord' %}d-none{% endif %}">
             <label>{{ t("ALERTS_DISCORD_WEBHOOK") }}</label>
             <input
               type="text"
+              id="discordWebhookInput"
               name="discord_webhook_url"
               form="settingsForm"
               class="form-control"
-              placeholder="https://discord.com/api/webhooks/..."
+              placeholder="{{ t('ALERTS_DISCORD_WEBHOOK_PLACEHOLDER') }}"
               value="{{ discord_webhook_url or '' }}"
+            >
+          </div>
+
+          <div id="telegramBlock" class="form-group mb-3 {% if active_provider != 'telegram' %}d-none{% endif %}">
+            <label>{{ t("ALERTS_TELEGRAM_BOT_TOKEN") }}</label>
+            <input
+              type="text"
+              id="telegramBotTokenInput"
+              name="telegram_bot_token"
+              form="settingsForm"
+              class="form-control mb-2"
+              placeholder="{{ t('ALERTS_TELEGRAM_BOT_TOKEN_PLACEHOLDER') }}"
+              value="{{ telegram_bot_token or '' }}"
+            >
+
+            <label>{{ t("ALERTS_TELEGRAM_CHAT_ID") }}</label>
+            <input
+              type="text"
+              id="telegramChatIdInput"
+              name="telegram_chat_id"
+              form="settingsForm"
+              class="form-control"
+              placeholder="{{ t('ALERTS_TELEGRAM_CHAT_ID_PLACEHOLDER') }}"
+              value="{{ telegram_chat_id or '' }}"
+            >
+          </div>
+
+          <div id="slackBlock" class="form-group mb-3 {% if active_provider != 'slack' %}d-none{% endif %}">
+            <label>{{ t("ALERTS_SLACK_WEBHOOK") }}</label>
+            <input
+              type="text"
+              id="slackWebhookInput"
+              name="slack_webhook_url"
+              form="settingsForm"
+              class="form-control"
+              placeholder="https://hooks.slack.com/services/..."
+              value="{{ slack_webhook_url or '' }}"
+            >
+          </div>
+
+          <div id="teamsBlock" class="form-group mb-3 {% if active_provider != 'teams' %}d-none{% endif %}">
+            <label>{{ t("ALERTS_TEAMS_WEBHOOK") }}</label>
+            <input
+              type="text"
+              id="teamsWebhookInput"
+              name="teams_webhook_url"
+              form="settingsForm"
+              class="form-control"
+              placeholder="https://.../webhook..."
+              value="{{ teams_webhook_url or '' }}"
+            >
+          </div>
+
+          <div id="emailBlock" class="form-group mb-3 {% if active_provider != 'email' %}d-none{% endif %}">
+            <label>{{ t("ALERTS_EMAIL_URL") }}</label>
+            <input
+              type="text"
+              id="emailUrlInput"
+              name="email_url"
+              form="settingsForm"
+              class="form-control"
+              placeholder="{{ t('ALERTS_EMAIL_URL_PLACEHOLDER') }}"
+              value="{{ email_url or '' }}"
+            >
+          </div>
+
+          <div id="pushoverBlock" class="form-group mb-3 {% if active_provider != 'pushover' %}d-none{% endif %}">
+            <label>{{ t("ALERTS_PUSHOVER_USER") }}</label>
+            <input
+              type="text"
+              id="pushoverUserInput"
+              name="pushover_user"
+              form="settingsForm"
+              class="form-control mb-2"
+              value="{{ pushover_user or '' }}"
+            >
+            <label>{{ t("ALERTS_PUSHOVER_TOKEN") }}</label>
+            <input
+              type="text"
+              id="pushoverTokenInput"
+              name="pushover_token"
+              form="settingsForm"
+              class="form-control mb-2"
+              value="{{ pushover_token or '' }}"
+            >
+            <label>{{ t("ALERTS_PUSHOVER_DEVICE") }}</label>
+            <input
+              type="text"
+              id="pushoverDeviceInput"
+              name="pushover_device"
+              form="settingsForm"
+              class="form-control"
+              value="{{ pushover_device or '' }}"
+            >
+          </div>
+
+          <div id="gotifyBlock" class="form-group mb-3 {% if active_provider != 'gotify' %}d-none{% endif %}">
+            <label>{{ t("ALERTS_GOTIFY_HOST") }}</label>
+            <input
+              type="text"
+              id="gotifyHostInput"
+              name="gotify_host"
+              form="settingsForm"
+              class="form-control mb-2"
+              placeholder="gotify.example.com"
+              value="{{ gotify_host or '' }}"
+            >
+            <label>{{ t("ALERTS_GOTIFY_TOKEN") }}</label>
+            <input
+              type="text"
+              id="gotifyTokenInput"
+              name="gotify_token"
+              form="settingsForm"
+              class="form-control mb-2"
+              value="{{ gotify_token or '' }}"
+            >
+            <div class="custom-control custom-checkbox">
+              <input
+                type="checkbox"
+                id="gotifyHttpsInput"
+                name="gotify_https"
+                class="custom-control-input"
+                form="settingsForm"
+                {% if gotify_https %}checked{% endif %}
+              >
+              <label class="custom-control-label" for="gotifyHttpsInput">{{ t("ALERTS_GOTIFY_HTTPS") }}</label>
+            </div>
+          </div>
+
+          <div id="customBlock" class="form-group mb-3 {% if active_provider != 'custom' %}d-none{% endif %}">
+            <label>{{ t("ALERTS_CUSTOM_URL") }}</label>
+            <input
+              type="text"
+              id="customUrlInput"
+              name="custom_url"
+              form="settingsForm"
+              class="form-control"
+              placeholder="{{ t('ALERTS_CUSTOM_URL_PLACEHOLDER') }}"
+              value="{{ custom_url or '' }}"
             >
           </div>
 
@@ -174,6 +337,82 @@
               min="1"
               value="{{ offline_threshold_minutes }}"
             >
+          </div>
+
+          <div class="form-group mb-3">
+            <label class="d-block mb-2">{{ t("QUIET_TITLE") }}</label>
+            <div class="d-flex align-items-center mb-2">
+              <span class="mr-2">{{ t("QUIET_ENABLE") }}</span>
+              <label class="toggle-switch mb-0">
+                <input type="checkbox" name="quiet_enabled" form="settingsForm" {% if quiet_enabled %}checked{% endif %}>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col-md-6">
+                <label>{{ t("QUIET_START") }}</label>
+                <input
+                  type="time"
+                  name="quiet_start"
+                  form="settingsForm"
+                  class="form-control"
+                  value="{{ quiet_start }}"
+                >
+              </div>
+              <div class="form-group col-md-6">
+                <label>{{ t("QUIET_END") }}</label>
+                <input
+                  type="time"
+                  name="quiet_end"
+                  form="settingsForm"
+                  class="form-control"
+                  value="{{ quiet_end }}"
+                >
+              </div>
+            </div>
+
+            <label class="d-block mb-1">{{ t("QUIET_DAYS") }}</label>
+            <div class="d-flex flex-wrap mb-2">
+              <div class="custom-control custom-checkbox mr-3">
+                <input class="custom-control-input quiet-day" type="checkbox" id="quietDayMon" name="quiet_days" value="0" form="settingsForm" {% if 0 in quiet_days %}checked{% endif %}>
+                <label class="custom-control-label" for="quietDayMon">{{ t("QUIET_DAY_MON") }}</label>
+              </div>
+              <div class="custom-control custom-checkbox mr-3">
+                <input class="custom-control-input quiet-day" type="checkbox" id="quietDayTue" name="quiet_days" value="1" form="settingsForm" {% if 1 in quiet_days %}checked{% endif %}>
+                <label class="custom-control-label" for="quietDayTue">{{ t("QUIET_DAY_TUE") }}</label>
+              </div>
+              <div class="custom-control custom-checkbox mr-3">
+                <input class="custom-control-input quiet-day" type="checkbox" id="quietDayWed" name="quiet_days" value="2" form="settingsForm" {% if 2 in quiet_days %}checked{% endif %}>
+                <label class="custom-control-label" for="quietDayWed">{{ t("QUIET_DAY_WED") }}</label>
+              </div>
+              <div class="custom-control custom-checkbox mr-3">
+                <input class="custom-control-input quiet-day" type="checkbox" id="quietDayThu" name="quiet_days" value="3" form="settingsForm" {% if 3 in quiet_days %}checked{% endif %}>
+                <label class="custom-control-label" for="quietDayThu">{{ t("QUIET_DAY_THU") }}</label>
+              </div>
+              <div class="custom-control custom-checkbox mr-3">
+                <input class="custom-control-input quiet-day" type="checkbox" id="quietDayFri" name="quiet_days" value="4" form="settingsForm" {% if 4 in quiet_days %}checked{% endif %}>
+                <label class="custom-control-label" for="quietDayFri">{{ t("QUIET_DAY_FRI") }}</label>
+              </div>
+              <div class="custom-control custom-checkbox mr-3">
+                <input class="custom-control-input quiet-day" type="checkbox" id="quietDaySat" name="quiet_days" value="5" form="settingsForm" {% if 5 in quiet_days %}checked{% endif %}>
+                <label class="custom-control-label" for="quietDaySat">{{ t("QUIET_DAY_SAT") }}</label>
+              </div>
+              <div class="custom-control custom-checkbox mr-3">
+                <input class="custom-control-input quiet-day" type="checkbox" id="quietDaySun" name="quiet_days" value="6" form="settingsForm" {% if 6 in quiet_days %}checked{% endif %}>
+                <label class="custom-control-label" for="quietDaySun">{{ t("QUIET_DAY_SUN") }}</label>
+              </div>
+            </div>
+
+            <div class="d-flex flex-wrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary mr-2" id="quietWeekdaysBtn">{{ t("QUIET_WEEKDAYS") }}</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary mr-2" id="quietWeekendsBtn">{{ t("QUIET_WEEKENDS") }}</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="quietAllDaysBtn">{{ t("QUIET_ALL_DAYS") }}</button>
+            </div>
+
+            <small class="form-text text-muted mt-2">
+              {{ t("QUIET_HINT") }}
+            </small>
           </div>
 
           <hr class="border-secondary">
@@ -314,7 +553,7 @@
           </div>
 
           <div class="mt-2">
-            <form method="POST" action="{{ url_for('test_discord') }}" class="d-inline">
+            <form method="POST" action="{{ url_for('test_alert') }}" class="d-inline">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-info btn-sm">{{ t("ALERTS_TEST_BUTTON") }}</button>
             </form>
@@ -326,6 +565,35 @@
   const scopeAll = document.getElementById("alertScopeAll");
   const scopeSelected = document.getElementById("alertScopeSelected");
   const picker = document.getElementById("alertDevicePicker");
+
+  const providerSelect = document.getElementById("alertProvider");
+  const discordWebhookBlock = document.getElementById("discordWebhookBlock");
+  const telegramBlock = document.getElementById("telegramBlock");
+  const slackBlock = document.getElementById("slackBlock");
+  const teamsBlock = document.getElementById("teamsBlock");
+  const emailBlock = document.getElementById("emailBlock");
+  const pushoverBlock = document.getElementById("pushoverBlock");
+  const gotifyBlock = document.getElementById("gotifyBlock");
+  const customBlock = document.getElementById("customBlock");
+  const discordWebhookInput = document.getElementById("discordWebhookInput");
+  const telegramBotTokenInput = document.getElementById("telegramBotTokenInput");
+  const telegramChatIdInput = document.getElementById("telegramChatIdInput");
+  const slackWebhookInput = document.getElementById("slackWebhookInput");
+  const teamsWebhookInput = document.getElementById("teamsWebhookInput");
+  const emailUrlInput = document.getElementById("emailUrlInput");
+  const pushoverUserInput = document.getElementById("pushoverUserInput");
+  const pushoverTokenInput = document.getElementById("pushoverTokenInput");
+  const pushoverDeviceInput = document.getElementById("pushoverDeviceInput");
+  const gotifyHostInput = document.getElementById("gotifyHostInput");
+  const gotifyTokenInput = document.getElementById("gotifyTokenInput");
+  const gotifyHttpsInput = document.getElementById("gotifyHttpsInput");
+  const customUrlInput = document.getElementById("customUrlInput");
+  const notifyEnabledToggle = document.getElementById("notifyEnabledToggle");
+
+  const quietDays = document.querySelectorAll(".quiet-day");
+  const quietWeekdaysBtn = document.getElementById("quietWeekdaysBtn");
+  const quietWeekendsBtn = document.getElementById("quietWeekendsBtn");
+  const quietAllDaysBtn = document.getElementById("quietAllDaysBtn");
 
   const filterInput = document.getElementById("alertFilterInput");
   const rows = document.querySelectorAll(".alert-dev-row");
@@ -356,6 +624,54 @@
     }
 
     setToggleLabel();
+  }
+
+  function setBlock(block, inputList, isActive) {
+    if (block) block.classList.toggle("d-none", !isActive);
+    (inputList || []).forEach(el => {
+      if (el) el.disabled = !isActive;
+    });
+  }
+
+  function syncProviderBlocks() {
+    if (!providerSelect) return;
+    const v = (providerSelect.value || "").toLowerCase();
+    setBlock(discordWebhookBlock, [discordWebhookInput], v === "discord");
+    setBlock(telegramBlock, [telegramBotTokenInput, telegramChatIdInput], v === "telegram");
+    setBlock(slackBlock, [slackWebhookInput], v === "slack");
+    setBlock(teamsBlock, [teamsWebhookInput], v === "teams");
+    setBlock(emailBlock, [emailUrlInput], v === "email");
+    setBlock(pushoverBlock, [pushoverUserInput, pushoverTokenInput, pushoverDeviceInput], v === "pushover");
+    setBlock(gotifyBlock, [gotifyHostInput, gotifyTokenInput, gotifyHttpsInput], v === "gotify");
+    setBlock(customBlock, [customUrlInput], v === "custom");
+  }
+
+  if (providerSelect) providerSelect.addEventListener("change", syncProviderBlocks);
+
+  function setQuietDays(daySet) {
+    if (!quietDays) return;
+    quietDays.forEach(cb => {
+      const v = parseInt(cb.value, 10);
+      cb.checked = daySet.has(v);
+    });
+  }
+
+  if (quietWeekdaysBtn) {
+    quietWeekdaysBtn.addEventListener("click", function() {
+      setQuietDays(new Set([0, 1, 2, 3, 4]));
+    });
+  }
+
+  if (quietWeekendsBtn) {
+    quietWeekendsBtn.addEventListener("click", function() {
+      setQuietDays(new Set([5, 6]));
+    });
+  }
+
+  if (quietAllDaysBtn) {
+    quietAllDaysBtn.addEventListener("click", function() {
+      setQuietDays(new Set([0, 1, 2, 3, 4, 5, 6]));
+    });
   }
 
   if (scopeAll) scopeAll.addEventListener("change", updatePickerVisibility);
@@ -389,6 +705,7 @@
 
   setToggleLabel();
   updatePickerVisibility();
+  syncProviderBlocks();
     const newDeviceModeEl = document.getElementById("newDeviceAlertMode");
   const newDeviceSubnetBlock = document.getElementById("newDeviceSubnetBlock");
 
@@ -431,6 +748,13 @@
               <button type="submit" class="btn btn-success">{{ t("SAVE_THEME") }}</button>
             </form>
           </div>
+
+          <hr class="border-secondary my-3">
+
+          <form method="POST" action="{{ url_for('backup_db') }}" class="mb-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-info">{{ t("BACKUP_DB") }}</button>
+          </form>
         </div>
 
         {# -------------------------

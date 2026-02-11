@@ -118,7 +118,8 @@ else
     Flask-Login \
     Flask-Bcrypt \
     python-nmap \
-    gunicorn
+    gunicorn \
+    apprise
 fi
 
 echo
@@ -129,6 +130,7 @@ import flask_sqlalchemy
 import flask_login
 import flask_bcrypt
 import nmap
+import apprise
 print(" Python dependencies inside venv look OK.")
 EOF
 

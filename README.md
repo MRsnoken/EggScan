@@ -123,9 +123,11 @@ EggScan is **not** intended for:
 - Alias naming for devices
 - Online / offline / new device indicators
 - SQLite database storage
-- Runs as a systemd service
+- Runs as two systemd services (web + scan worker)
 - Versioning via `version.json`
 - No cloud backend – all scan data stays on your LAN
+- Multi-channel notifications via Apprise (Discord, Telegram, Slack, Email, Teams, Pushover, Gotify, custom URL)
+- Quiet hours with digest summary after quiet period ends
 - Optional subnet labeling (e.g. Home, Guest, Lab)
 - Subnet-aware device display:
   - Subnet shown as a column in the device table, or
@@ -133,22 +135,14 @@ EggScan is **not** intended for:
 - Accurate handling of devices present in multiple subnets
 - Subnet display reflects actual scan results (no guessed or historical placement)
 - Upgrade-safe installer with automatic database schema checks<br>
-- Optional Discord alerts for:
-  - New devices
-  - Devices appearing in new subnets
-  - Offline / back-online events
+- One-click admin action to mark all new devices as known
+- Database backup download from the Settings page (admin only)
 - Separated scan worker and web UI for improved stability
-- Production-ready web serving via Gunicorn (systemd)
+ - Production-ready web serving via Gunicorn (systemd)
 
 </details>
 
-
-<details>
-<summary><strong>Requirements</strong> ⬇</summary>
-
-- Python 3.9+ 
-- Linux / Unix-like system (tested on Debian/Ubuntu/Raspberry Pi OS)
-</details>
+---
 
 <details>
 <summary><strong> Installation (Debian / Ubuntu) </strong> ⬇</summary>
@@ -174,7 +168,7 @@ The installer will:
 - Create a Python virtual environment
 - Install Python dependencies inside the venv
 - Copy application files to /opt/eggscan
-- Create a systemd service
+- Create two systemd services (`eggscan-web.service` and `eggscan-scan.service`)
 - Start EggScan automatically
 
 
@@ -192,6 +186,8 @@ Listed in requirements.txt:
 - Flask-Login
 - Flask-Bcrypt
 - python-nmap
+- gunicorn
+- apprise
 
 </details>
 <details>
@@ -210,7 +206,7 @@ No automatic installer is provided.
 
 You must manually install:
 
-- Python 3.9+
+- Python 3
 - python3-venv (or equivalent)
 - pip
 - nmap
@@ -220,7 +216,7 @@ You must manually install:
 You must also manually create:
 
 - a virtual environment
-- a systemd service file
+- two systemd service files (web + scan worker)
 - a directory structure under /opt/eggscan
 
 For advanced users only.
@@ -231,19 +227,21 @@ To remove EggScan manually, delete:
 
 ```bash
 /opt/eggscan/
-/lib/systemd/system/eggscan.service   (or /etc/systemd/system/)
+/lib/systemd/system/eggscan-web.service
+/lib/systemd/system/eggscan-scan.service
+# (or /etc/systemd/system/ depending on your distro)
 ```
 Optional data files:
 
 ```bash
 /opt/eggscan/secret_key.txt
-eggscan.db
+/opt/eggscan/eggscan.db
 ```
 Then run:
 
 ```bash
-sudo systemctl stop eggscan.service
-sudo systemctl disable eggscan.service
+sudo systemctl stop eggscan-web.service eggscan-scan.service
+sudo systemctl disable eggscan-web.service eggscan-scan.service
 sudo systemctl daemon-reload
 ```
 
@@ -262,6 +260,7 @@ It does not currently include:
 - HTTPS / TLS by default
 
 EggScan **does include CSRF protection** for POST actions, but it is still a local‑only tool.
+Notification integrations are optional and only used if you explicitly configure them.
 
 For remote access, EggScan must be placed behind:
 
@@ -276,7 +275,7 @@ For remote access, EggScan must be placed behind:
 
 Planned or considered improvements:
 
-“Additional notification targets beyond Discord”
+- Additional notification workflows and templates
 - Improved device history and presence tracking
 - UI refinements and accessibility improvements
 

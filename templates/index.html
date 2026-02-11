@@ -111,7 +111,20 @@
       </form>
 
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <div></div>
+        <div>
+          {% if current_user.is_admin %}
+            <form method="POST" action="{{ url_for('mark_known_all') }}" class="mb-0 d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button
+                type="submit"
+                class="btn btn-sm btn-outline-warning"
+                {% if new_devices <= 0 %}disabled{% endif %}
+              >
+                {{ t("MARK_ALL_NEW_KNOWN") }}
+              </button>
+            </form>
+          {% endif %}
+        </div>
         <form method="POST" action="{{ url_for('force_scan') }}" class="mb-0">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-primary">{{ t("SCAN_NOW") }}</button>
@@ -461,7 +474,11 @@
                   </td>
 
                   <td class="align-middle">
-                    
+                    {% if dev.last_seen_at %}
+                      {{ format_local(dev.last_seen_at, display_tz) }}
+                    {% else %}
+                      -
+                    {% endif %}
                   </td>
 
                   <td class="align-middle">

@@ -4,3 +4,4 @@ Flask-Login
 Flask-Bcrypt
 python-nmap
 gunicorn
+apprise

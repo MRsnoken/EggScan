@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] – 2026-02-08
+
+## Added
+  -  Multi-channel alert providers via Apprise (Discord, Telegram, Slack, Email, Teams, Pushover, Gotify, Custom).
+  -  Provider-specific alert fields in settings with a unified enable toggle.
+  -  Backward compatibility for existing Discord webhook settings.
+  -  Quiet hours with digest summary after quiet period ends, including event timestamps.
+  -  Admin action to mark all new devices as known with one click.
+  -  Database backup download button in Settings (admin only).
+
 ## [1.5.2] – 2026-01-26
 
 ## Fixed
