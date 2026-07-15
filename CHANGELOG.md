@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] 
+
+## Added
+  -  Quick tag filters on the index page (`All` + admin-defined quick tags).
+  -  Quick-tag chip counts (for example `iot (12)`).
+  -  Admin quick-tag manager (collapsible panel) with autocomplete from existing device tags.
+  -  Config snapshot export/import in Settings for backup/transfer of existing app configuration only.
+  -  Export popup for config snapshots where you choose which configuration sections to include.
+  -  Extra offline verification pass for known devices before they are marked offline.
+  -  Per-device offline reminders, disabled by default, with a configurable repeat interval.
+  -  Uplink theme with terminal-inspired network console styling.
+  -  New devices dashboard counter opens a compact review modal with the existing device actions.
+  -  Settings search to quickly filter configuration sections.
+
+## Changed
+  -  Active quick-tag filter is now stored in URL query (`?tag=`) so refresh/share keeps the same view.
+  -  Manual `Scan now` keeps the current page filter state (including quick-tag selection) after redirect.
+  -  Quick-tag removal now supports direct remove via `×` with confirmation (no extra save click needed).
+  -  Pressing `Enter` when adding a quick tag now saves immediately; save button remains available.
+  -  Config snapshot import now follows the snapshot file content (selected at export time) and remains backward compatible with older snapshots.
+  -  Dark theme now uses a cleaner high-contrast dark palette.
+  
+
+## Fixed
+  -  Offline alerts are no longer retried every scan when an existing alert log entry for the same offline event has status `failed`.
+
 ## [1.6.0] – 2026-02-08
 
 ## Added

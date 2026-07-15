@@ -182,6 +182,8 @@ class DeviceAlert(db.Model):
     device_id = db.Column(db.Integer, nullable=False, unique=True, index=True)
     enabled = db.Column(db.Boolean, default=True, nullable=False)
     offline_threshold_minutes = db.Column(db.Integer, nullable=True)
+    repeat_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    repeat_interval_minutes = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(
         db.DateTime,
@@ -245,6 +247,12 @@ def ensure_db_schema():
             db.session.rollback()
             db.create_all()
 
+        if not has_column("device_alert", "repeat_enabled"):
+            db.session.execute(text("ALTER TABLE device_alert ADD COLUMN repeat_enabled BOOLEAN NOT NULL DEFAULT 0;"))
+
+        if not has_column("device_alert", "repeat_interval_minutes"):
+            db.session.execute(text("ALTER TABLE device_alert ADD COLUMN repeat_interval_minutes INTEGER;"))
+
         try:
             db.session.execute(text("SELECT 1 FROM alert_log LIMIT 1;"))
         except Exception:
@@ -298,6 +306,14 @@ TRANSLATIONS = {
         "FILTER_BOTH": "Båda",
         "FILTER_ONLINE": "Endast online",
         "FILTER_OFFLINE": "Endast offline",
+        "TAG_FILTER_LABEL": "Taggfilter:",
+        "TAG_FILTER_ALL": "Alla",
+        "QUICK_TAGS_ADMIN_LABEL": "Snabbtaggar",
+        "QUICK_TAGS_MANAGE": "Hantera snabbtaggar",
+        "QUICK_TAGS_PLACEHOLDER": "Skriv tagg och tryck Enter",
+        "QUICK_TAGS_HINT": "Lägg till taggar för snabbfilter. Förslag visas från befintliga taggar.",
+        "QUICK_TAGS_SAVE": "Spara snabbtaggar",
+        "QUICK_TAGS_CONFIRM_REMOVE": "Vill du ta bort snabbtaggen \"{tag}\"?",
         "SEARCH_PLACEHOLDER": "Sök IP/MAC/Alias/Taggar",
         "SEARCH_FILTER_BUTTON": "Sök/Filtrera",
         "SORT_LABEL": "Sortera:",
@@ -308,6 +324,22 @@ TRANSLATIONS = {
         "SORT_UPDATED": "Uppdaterad",
         "SCAN_NOW": "Skanna nu",
         "BACKUP_DB": "Backup databas",
+        "CONFIG_SNAPSHOT_TITLE": "Inställnings-snapshot",
+        "CONFIG_SNAPSHOT_HINT": "Exportera/importera bara konfiguration (inte hela databasen).",
+        "CONFIG_SNAPSHOT_SAVES": "Sparas: inställningar, notifieringskonfiguration, tysta tider, tema/språk, subnät och snabbtaggar.",
+        "CONFIG_SNAPSHOT_NOT_SAVED": "Sparas inte: användare, enheter, enhetshistorik, larmhistorik och skanningsstatus.",
+        "CONFIG_SNAPSHOT_EXPORT_OPTIONS": "Välj vad snapshoten ska innehålla:",
+        "CONFIG_SNAPSHOT_IMPORT_OPTIONS": "Importera valda delar:",
+        "CONFIG_SNAPSHOT_IMPORT_NOTE": "Import följer innehållet i snapshot-filen.",
+        "CONFIG_SNAPSHOT_OPT_GENERAL": "Övriga inställningar",
+        "CONFIG_SNAPSHOT_OPT_NOTIFICATIONS": "Notifieringsinställningar",
+        "CONFIG_SNAPSHOT_OPT_QUIET_HOURS": "Tysta tider",
+        "CONFIG_SNAPSHOT_OPT_THEME_LANG": "Tema / språk / tidszon",
+        "CONFIG_SNAPSHOT_OPT_QUICK_TAGS": "Snabbtaggar",
+        "CONFIG_SNAPSHOT_OPT_SUBNETS": "Subnät och etiketter",
+        "CONFIG_SNAPSHOT_EXPORT": "Exportera snapshot",
+        "CONFIG_SNAPSHOT_IMPORT": "Importera snapshot",
+        "CONFIG_SNAPSHOT_FILE_LABEL": "Snapshot-fil (.json)",
         "SCAN_RUNNING": "Skanning pågår…",
         "TABLE_IP": "IP",
         "TABLE_MAC": "MAC",
@@ -321,6 +353,9 @@ TRANSLATIONS = {
         "MANUFACTURER_UNKNOWN": "Okänd",
         "MARK_KNOWN": "Markera känd",
         "MARK_ALL_NEW_KNOWN": "Markera alla nya som kända",
+        "DEVICE_KNOWN": "Känd",
+        "NEW_DEVICES_MODAL_TITLE": "Nya enheter",
+        "NEW_DEVICES_MODAL_EMPTY": "Inga nya enheter.",
         "DELETE": "Ta bort",
         "ALIAS_MODAL_TITLE": "Uppdatera Alias",
         "ALIAS_LABEL": "Alias",
@@ -383,6 +418,11 @@ TRANSLATIONS = {
         "CONFIG_SUBNET_DELETE_BUTTON": "Radera",
         "CONFIG_GUESS_BUTTON": "Gissa mitt IPv4-spann",
         "CONFIG_OTHER_SETTINGS": "Övriga inställningar",
+        "SETTINGS_SEARCH_LABEL": "Sök inställningar",
+        "SETTINGS_SEARCH_PLACEHOLDER": "Sök t.ex. språk, alerts, tema, subnet...",
+        "SETTINGS_SEARCH_HINT": "Visar hela matchande sektioner. Rensa sökningen för att visa allt igen.",
+        "SETTINGS_SEARCH_CLEAR": "Rensa",
+        "SETTINGS_SEARCH_NO_RESULTS": "Inga inställningar matchar sökningen.",
         "CONFIG_IPV6_ENABLE": "Aktivera IPv6-upptäckt",
         "CONFIG_SCAN_INTERVAL": "Skanningsintervall (minuter):",
         "CONFIG_HIGHLIGHT_NEW": "Nya/okända enheter blinkar",
@@ -423,6 +463,13 @@ TRANSLATIONS = {
         "FLASH_SUBNET_DELETED": "Subnät {cidr} raderat!",
         "FLASH_SCAN_INTERVAL_INVALID": "Skanningsintervall måste vara ett positivt heltal.",
         "FLASH_SETTINGS_UPDATED": "Inställningar uppdaterade!",
+        "FLASH_CONFIG_SNAPSHOT_FILE_MISSING": "Ingen snapshot-fil vald.",
+        "FLASH_CONFIG_SNAPSHOT_INVALID_JSON": "Ogiltig snapshot-fil (JSON kunde inte läsas).",
+        "FLASH_CONFIG_SNAPSHOT_IMPORT_FAILED": "Kunde inte importera snapshot: {error}",
+        "FLASH_CONFIG_SNAPSHOT_IMPORTED": "Inställnings-snapshot importerad.",
+        "FLASH_CONFIG_SNAPSHOT_NOTHING_SELECTED": "Välj minst en del att importera.",
+        "FLASH_CONFIG_SNAPSHOT_EXPORT_FAILED": "Kunde inte exportera snapshot: {error}",
+        "FLASH_QUICK_TAGS_UPDATED": "Snabbtaggar uppdaterade!",
         "FLASH_DB_BACKUP_FAILED": "Kunde inte skapa databasbackup: {error}",
         "FLASH_AJAX_MARK_KNOWN_FAIL": "Kunde inte markera enheten som känd.",
         "FLASH_AJAX_SUBNET_ORDER_FAIL": "Kunde inte spara subnätsordning.",
@@ -430,6 +477,7 @@ TRANSLATIONS = {
 
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Endast admin kan ändra tillverkare!",
         "FLASH_MANUFACTURER_UPDATED": "Tillverkare uppdaterad!",
+        "FLASH_QUICK_TAGS_ADMIN_ONLY": "Endast admin kan ändra snabbtaggar!",
 
         "CONFIG_SCAN_INTERVAL_HINT": "Ändras vid nästa skanning.",
         "ACTIVE_SCAN_INTERVAL_LABEL": "Aktivt intervall just nu:",
@@ -488,6 +536,9 @@ TRANSLATIONS = {
         "ALERTS_TEST_BUTTON": "Skicka testlarm",
         "ALERTS_TEST_SENT": "Testlarm skickat!",
         "ALERTS_TEST_FAIL": "Kunde inte skicka testlarm: {error}",
+        "ALERTS_COL_REPEAT": "Påminn",
+        "ALERTS_COL_REPEAT_INTERVAL": "Påminn var (min)",
+        "ALERTS_REPEAT_HINT": "Påminnelser är av som standard och gäller bara enheter där du aktivt slår på dem.",
 
         "DISPLAY_TIMEZONE_LABEL": "Tidszon (visning)",
         "DISPLAY_TIMEZONE_HINT": "Lämna tomt för serverns tidszon. Exempel: Europe/Stockholm",
@@ -499,6 +550,7 @@ TRANSLATIONS = {
         "THEME_DARK": "Mörkt",
         "THEME_LIGHT": "Ljust",
         "THEME_COSMOS": "Cosmos",
+        "THEME_UPLINK": "Uplink",
         "ALERTS_DISCORD_WEBHOOK_PLACEHOLDER": "https://discord.com/api/webhooks/...",
         "ALERTS_NEW_DEVICE_TITLE": "Nya enheter",
         "ALERTS_NEW_DEVICE_OFF": "Av",
@@ -535,6 +587,7 @@ TRANSLATIONS = {
         "QUIET_SUMMARY_WINDOW": "Period",
         "QUIET_SUMMARY_EVENTS": "Handelser",
         "ALERT_TYPE_OFFLINE": "Offline",
+        "ALERT_TYPE_OFFLINE_REPEAT": "Offline-påminnelse",
         "ALERT_TYPE_ONLINE_BACK": "Online igen",
         "ALERT_TYPE_NEW_DEVICE": "Ny enhet",
         "ALERT_TYPE_NEW_DEVICE_SUBNET": "Ny enhet i subnät",
@@ -569,6 +622,14 @@ TRANSLATIONS = {
         "FILTER_BOTH": "Both",
         "FILTER_ONLINE": "Online only",
         "FILTER_OFFLINE": "Offline only",
+        "TAG_FILTER_LABEL": "Tag filter:",
+        "TAG_FILTER_ALL": "All",
+        "QUICK_TAGS_ADMIN_LABEL": "Quick tags",
+        "QUICK_TAGS_MANAGE": "Manage quick tags",
+        "QUICK_TAGS_PLACEHOLDER": "Type a tag and press Enter",
+        "QUICK_TAGS_HINT": "Add tags for quick filtering. Suggestions come from existing device tags.",
+        "QUICK_TAGS_SAVE": "Save quick tags",
+        "QUICK_TAGS_CONFIRM_REMOVE": "Do you want to remove quick tag \"{tag}\"?",
         "SEARCH_PLACEHOLDER": "Search IP/MAC/Alias/Tags",
         "SEARCH_FILTER_BUTTON": "Search/Filter",
         "SORT_LABEL": "Sort:",
@@ -579,6 +640,22 @@ TRANSLATIONS = {
         "SORT_UPDATED": "Updated",
         "SCAN_NOW": "Scan now",
         "BACKUP_DB": "Backup database",
+        "CONFIG_SNAPSHOT_TITLE": "Config snapshot",
+        "CONFIG_SNAPSHOT_HINT": "Export/import configuration only (not the full database).",
+        "CONFIG_SNAPSHOT_SAVES": "Saved: settings, notification config, quiet hours, theme/language, subnets, and quick tags.",
+        "CONFIG_SNAPSHOT_NOT_SAVED": "Not saved: users, devices, device history, alert history, and scan runtime status.",
+        "CONFIG_SNAPSHOT_EXPORT_OPTIONS": "Choose what to include in the snapshot:",
+        "CONFIG_SNAPSHOT_IMPORT_OPTIONS": "Import selected parts:",
+        "CONFIG_SNAPSHOT_IMPORT_NOTE": "Import follows whatever is included in the snapshot file.",
+        "CONFIG_SNAPSHOT_OPT_GENERAL": "General settings",
+        "CONFIG_SNAPSHOT_OPT_NOTIFICATIONS": "Notification settings",
+        "CONFIG_SNAPSHOT_OPT_QUIET_HOURS": "Quiet hours",
+        "CONFIG_SNAPSHOT_OPT_THEME_LANG": "Theme / language / timezone",
+        "CONFIG_SNAPSHOT_OPT_QUICK_TAGS": "Quick tags",
+        "CONFIG_SNAPSHOT_OPT_SUBNETS": "Subnets and labels",
+        "CONFIG_SNAPSHOT_EXPORT": "Export snapshot",
+        "CONFIG_SNAPSHOT_IMPORT": "Import snapshot",
+        "CONFIG_SNAPSHOT_FILE_LABEL": "Snapshot file (.json)",
         "SCAN_RUNNING": "Scanning in progress…",
         "TABLE_IP": "IP",
         "TABLE_MAC": "MAC",
@@ -592,6 +669,9 @@ TRANSLATIONS = {
         "MANUFACTURER_UNKNOWN": "Unknown",
         "MARK_KNOWN": "Mark as known",
         "MARK_ALL_NEW_KNOWN": "Mark all new as known",
+        "DEVICE_KNOWN": "Known",
+        "NEW_DEVICES_MODAL_TITLE": "New devices",
+        "NEW_DEVICES_MODAL_EMPTY": "No new devices.",
         "DELETE": "Delete",
         "ALIAS_MODAL_TITLE": "Update Alias",
         "ALIAS_LABEL": "Alias",
@@ -654,6 +734,11 @@ TRANSLATIONS = {
         "CONFIG_SUBNET_DELETE_BUTTON": "Delete",
         "CONFIG_GUESS_BUTTON": "Guess my IPv4 range",
         "CONFIG_OTHER_SETTINGS": "Other settings",
+        "SETTINGS_SEARCH_LABEL": "Search settings",
+        "SETTINGS_SEARCH_PLACEHOLDER": "Search e.g. language, alerts, theme, subnet...",
+        "SETTINGS_SEARCH_HINT": "Shows whole matching sections. Clear the search to show everything again.",
+        "SETTINGS_SEARCH_CLEAR": "Clear",
+        "SETTINGS_SEARCH_NO_RESULTS": "No settings match the search.",
         "CONFIG_IPV6_ENABLE": "Enable IPv6 discovery",
         "CONFIG_SCAN_INTERVAL": "Scan interval (minutes):",
         "CONFIG_HIGHLIGHT_NEW": "New/unknown devices blink",
@@ -694,6 +779,13 @@ TRANSLATIONS = {
         "FLASH_GUESSED_SUBNET_EXISTS": "Subnet {cidr} already exists!",
         "FLASH_SCAN_INTERVAL_INVALID": "Scan interval must be a positive integer.",
         "FLASH_SETTINGS_UPDATED": "Settings updated!",
+        "FLASH_CONFIG_SNAPSHOT_FILE_MISSING": "No snapshot file selected.",
+        "FLASH_CONFIG_SNAPSHOT_INVALID_JSON": "Invalid snapshot file (JSON could not be parsed).",
+        "FLASH_CONFIG_SNAPSHOT_IMPORT_FAILED": "Could not import snapshot: {error}",
+        "FLASH_CONFIG_SNAPSHOT_IMPORTED": "Config snapshot imported.",
+        "FLASH_CONFIG_SNAPSHOT_NOTHING_SELECTED": "Select at least one part to import.",
+        "FLASH_CONFIG_SNAPSHOT_EXPORT_FAILED": "Could not export snapshot: {error}",
+        "FLASH_QUICK_TAGS_UPDATED": "Quick tags updated!",
         "FLASH_DB_BACKUP_FAILED": "Could not create database backup: {error}",
         "FLASH_AJAX_MARK_KNOWN_FAIL": "Could not mark device as known.",
         "FLASH_AJAX_SUBNET_ORDER_FAIL": "Could not save subnet order.",
@@ -701,6 +793,7 @@ TRANSLATIONS = {
 
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Only admin can change manufacturer!",
         "FLASH_MANUFACTURER_UPDATED": "Manufacturer updated!",
+        "FLASH_QUICK_TAGS_ADMIN_ONLY": "Only admin can change quick tags!",
 
         "CONFIG_SCAN_INTERVAL_HINT": "Takes effect on next scan.",
         "ACTIVE_SCAN_INTERVAL_LABEL": "Active interval right now:",
@@ -759,6 +852,9 @@ TRANSLATIONS = {
         "ALERTS_TEST_BUTTON": "Send test alert",
         "ALERTS_TEST_SENT": "Test alert sent!",
         "ALERTS_TEST_FAIL": "Could not send test alert: {error}",
+        "ALERTS_COL_REPEAT": "Remind",
+        "ALERTS_COL_REPEAT_INTERVAL": "Remind every (min)",
+        "ALERTS_REPEAT_HINT": "Reminders are off by default and only apply to devices where you explicitly enable them.",
         "ALERTS_NEW_DEVICE_SUBNET_HINT": "Leave empty to treat subnet alerts as “all subnets”. If you select subnets, only those will trigger new-device alerts.",
         "ALERTS_NEW_DEVICE_TITLE": "New devices",
         "ALERTS_NEW_DEVICE_OFF": "Off",
@@ -774,6 +870,7 @@ TRANSLATIONS = {
         "THEME_DARK": "Dark",
         "THEME_LIGHT": "Light",
         "THEME_COSMOS": "Cosmos",
+        "THEME_UPLINK": "Uplink",
         "ALERTS_DISCORD_WEBHOOK_PLACEHOLDER": "https://discord.com/api/webhooks/...",
         "ALERT_NEW_DEVICE_GLOBAL_TITLE": "🆕 EggScan: New device detected!",
         "ALERT_NEW_DEVICE_SUBNET_TITLE": "🆕 EggScan: New device in subnet!",
@@ -803,6 +900,7 @@ TRANSLATIONS = {
         "QUIET_SUMMARY_WINDOW": "Window",
         "QUIET_SUMMARY_EVENTS": "Events",
         "ALERT_TYPE_OFFLINE": "Offline",
+        "ALERT_TYPE_OFFLINE_REPEAT": "Offline reminder",
         "ALERT_TYPE_ONLINE_BACK": "Back online",
         "ALERT_TYPE_NEW_DEVICE": "New device",
         "ALERT_TYPE_NEW_DEVICE_SUBNET": "New device in subnet",
@@ -1002,6 +1100,7 @@ def get_last_quiet_window(now_local: datetime.datetime):
 def get_alert_type_label(alert_type: str) -> str:
     mapping = {
         "offline": "ALERT_TYPE_OFFLINE",
+        "offline_repeat": "ALERT_TYPE_OFFLINE_REPEAT",
         "online_back": "ALERT_TYPE_ONLINE_BACK",
         "new_device": "ALERT_TYPE_NEW_DEVICE",
         "new_device_subnet": "ALERT_TYPE_NEW_DEVICE_SUBNET",
@@ -1086,11 +1185,11 @@ def send_quiet_digest_if_needed():
         event_lines.append(f"- [{when_local}] {type_label}: {label}")
 
     summary_lines = []
-    for k in ("offline", "online_back", "new_device", "new_device_subnet", "test"):
+    for k in ("offline", "offline_repeat", "online_back", "new_device", "new_device_subnet", "test"):
         if k in counts:
             summary_lines.append(f"{get_alert_type_label(k)}: {counts[k]}")
     for k, v in counts.items():
-        if k in ("offline", "online_back", "new_device", "new_device_subnet", "test"):
+        if k in ("offline", "offline_repeat", "online_back", "new_device", "new_device_subnet", "test"):
             continue
         summary_lines.append(f"{get_alert_type_label(k)}: {v}")
 
@@ -1143,7 +1242,7 @@ def get_theme():
     if not theme:
         theme = "default"
 
-    allowed = {"default", "dark", "light", "cosmos"}
+    allowed = {"default", "dark", "light", "cosmos", "uplink"}
     if theme not in allowed:
         theme = "default"
 
@@ -1276,6 +1375,141 @@ def normalize_tags(raw_value: str) -> Optional[str]:
         seen.add(tag_lower)
         tags.append(tag_lower)
     return ", ".join(tags) if tags else None
+
+
+def parse_tags(raw_value: str) -> list[str]:
+    normalized = normalize_tags(raw_value)
+    if not normalized:
+        return []
+    return [p.strip() for p in normalized.split(",") if p.strip()]
+
+
+SNAPSHOT_EXCLUDED_SETTING_KEYS = {
+    "scan_status",
+    "scan_lock_token",
+    "scan_lock_until_utc",
+    "scan_requested",
+    "scan_request_id",
+    "scan_request_at_utc",
+    "last_scan_id",
+    "last_scan_time_utc",
+    "scan_interval_active",
+    "quiet_state",
+    "quiet_last_end",
+}
+
+SNAPSHOT_NOTIFICATION_SETTING_KEYS = {
+    "notify_provider",
+    "notify_enabled",
+    "notify_url",
+    "discord_webhook_url",
+    "telegram_bot_token",
+    "telegram_chat_id",
+    "slack_webhook_url",
+    "teams_webhook_url",
+    "email_url",
+    "pushover_user",
+    "pushover_token",
+    "pushover_device",
+    "gotify_host",
+    "gotify_token",
+    "gotify_https",
+    "custom_url",
+    "alert_scope",
+    "new_device_alert_mode",
+    "new_device_alert_subnets",
+    "offline_threshold_minutes",
+}
+
+SNAPSHOT_QUIET_SETTING_KEYS = {
+    "quiet_enabled",
+    "quiet_start",
+    "quiet_end",
+    "quiet_days",
+}
+
+SNAPSHOT_THEME_LANG_SETTING_KEYS = {
+    "theme",
+    "language",
+    "display_timezone",
+}
+
+SNAPSHOT_QUICK_TAG_SETTING_KEYS = {
+    "quick_filter_tags",
+}
+
+SNAPSHOT_CATEGORIZED_SETTING_KEYS = (
+    SNAPSHOT_NOTIFICATION_SETTING_KEYS
+    | SNAPSHOT_QUIET_SETTING_KEYS
+    | SNAPSHOT_THEME_LANG_SETTING_KEYS
+    | SNAPSHOT_QUICK_TAG_SETTING_KEYS
+)
+
+
+def build_config_snapshot(
+    include_general: bool = True,
+    include_notifications: bool = True,
+    include_quiet_hours: bool = True,
+    include_theme_lang: bool = True,
+    include_quick_tags: bool = True,
+    include_subnets: bool = True,
+) -> dict:
+    settings_map = {}
+    rows = Settings.query.all()
+    for row in rows:
+        key = str(row.key or "").strip()
+        if not key or key in SNAPSHOT_EXCLUDED_SETTING_KEYS:
+            continue
+
+        is_categorized = key in SNAPSHOT_CATEGORIZED_SETTING_KEYS
+        include_key = False
+
+        if key in SNAPSHOT_NOTIFICATION_SETTING_KEYS and include_notifications:
+            include_key = True
+        elif key in SNAPSHOT_QUIET_SETTING_KEYS and include_quiet_hours:
+            include_key = True
+        elif key in SNAPSHOT_THEME_LANG_SETTING_KEYS and include_theme_lang:
+            include_key = True
+        elif key in SNAPSHOT_QUICK_TAG_SETTING_KEYS and include_quick_tags:
+            include_key = True
+        elif include_general and not is_categorized:
+            include_key = True
+
+        if include_key:
+            settings_map[key] = str(row.value or "")
+
+    subnets_payload = []
+    if include_subnets:
+        for sn in SubNetwork.query.order_by(SubNetwork.sort_order.asc(), SubNetwork.id.asc()).all():
+            subnets_payload.append({
+                "cidr": str(sn.cidr or "").strip(),
+                "label": str(sn.label or "").strip(),
+                "sort_order": int(sn.sort_order or 0),
+            })
+
+    included_sections = []
+    if include_general:
+        included_sections.append("general")
+    if include_notifications:
+        included_sections.append("notifications")
+    if include_quiet_hours:
+        included_sections.append("quiet_hours")
+    if include_theme_lang:
+        included_sections.append("theme_lang")
+    if include_quick_tags:
+        included_sections.append("quick_tags")
+    if include_subnets:
+        included_sections.append("subnets")
+
+    return {
+        "format": "eggscan-config-snapshot",
+        "format_version": 1,
+        "app_version": APP_VERSION,
+        "created_at_utc": _iso_utc(utc_now()),
+        "included_sections": included_sections,
+        "settings": settings_map,
+        "subnets": subnets_payload,
+    }
 
 SCAN_LOCK_KEY = "scan_lock_token"
 SCAN_LOCK_UNTIL_KEY = "scan_lock_until_utc"
@@ -1635,12 +1869,45 @@ def get_device_threshold_minutes(dev: Device, default_minutes: int) -> int:
     return default_minutes
 
 
+def get_device_repeat_minutes(dev: Device) -> Optional[int]:
+    row = DeviceAlert.query.filter_by(device_id=dev.id).first()
+    if not row or not row.enabled or not row.repeat_enabled:
+        return None
+
+    try:
+        v = int(row.repeat_interval_minutes or 0)
+    except Exception:
+        return None
+
+    return v if v > 0 else None
+
+
 def make_offline_dedupe_key(dev: Device) -> str:
     if dev.last_seen_at:
         ts = dev.last_seen_at.replace(microsecond=0).isoformat()
     else:
         ts = "unknown"
     return f"offline:{dev.id}:{ts}"
+
+
+def make_offline_repeat_dedupe_key(
+    offline_dedupe_key: str,
+    offline_minutes: int,
+    threshold_minutes: int,
+    repeat_minutes: Optional[int]
+) -> Optional[str]:
+    if not repeat_minutes or repeat_minutes <= 0:
+        return None
+
+    minutes_since_initial_alert = offline_minutes - threshold_minutes
+    if minutes_since_initial_alert < repeat_minutes:
+        return None
+
+    repeat_index = minutes_since_initial_alert // repeat_minutes
+    if repeat_index <= 0:
+        return None
+
+    return f"{offline_dedupe_key}:repeat:{repeat_index}"
 
 
 def make_online_recovery_dedupe_key(dev: Device, offline_dedupe_key: str) -> str:
@@ -1836,10 +2103,26 @@ def evaluate_offline_alerts(current_scan_id: str):
             continue
 
         dedupe_key = make_offline_dedupe_key(dev)
+        alert_type = "offline"
+        repeat_minutes = get_device_repeat_minutes(dev)
 
         already = AlertLog.query.filter_by(dedupe_key=dedupe_key).first()
-        if already and already.status in ("sent", "muted"):
-            continue
+        if already:
+            repeat_dedupe_key = make_offline_repeat_dedupe_key(
+                dedupe_key,
+                offline_minutes,
+                threshold,
+                repeat_minutes
+            )
+            if not repeat_dedupe_key:
+                continue
+
+            already_repeat = AlertLog.query.filter_by(dedupe_key=repeat_dedupe_key).first()
+            if already_repeat:
+                continue
+
+            dedupe_key = repeat_dedupe_key
+            alert_type = "offline_repeat"
 
         msg = f"🔴 EggScan alert: {device_display_name(dev)} is offline "
 
@@ -1850,20 +2133,21 @@ def evaluate_offline_alerts(current_scan_id: str):
             "ip": dev.ip_address,
             "last_seen_at_utc": dev.last_seen_at.replace(microsecond=0).isoformat() if dev.last_seen_at else None,
             "offline_minutes": offline_minutes,
-            "threshold_minutes": threshold
+            "threshold_minutes": threshold,
+            "repeat_interval_minutes": repeat_minutes
         }
 
         try:
             now_local = datetime.datetime.now(datetime.timezone.utc).astimezone(get_local_timezone())
             if is_quiet_now(now_local):
-                log_alert("offline", provider, "muted", device=dev, details=details, error="quiet_hours", dedupe_key=dedupe_key)
+                log_alert(alert_type, provider, "muted", device=dev, details=details, error="quiet_hours", dedupe_key=dedupe_key)
             else:
                 send_apprise_notification(notify_url, msg)
-                log_alert("offline", provider, "sent", device=dev, details=details, dedupe_key=dedupe_key)
+                log_alert(alert_type, provider, "sent", device=dev, details=details, dedupe_key=dedupe_key)
         except Exception as e:
             err = str(e)
             try:
-                log_alert("offline", provider, "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
+                log_alert(alert_type, provider, "failed", device=dev, details=details, error=err, dedupe_key=dedupe_key)
             except Exception:
                 db.session.rollback()
 
@@ -1886,7 +2170,6 @@ def evaluate_online_recovery_alerts(current_scan_id: str):
             AlertLog.query
             .filter(AlertLog.alert_type == "offline")
             .filter(AlertLog.device_id == dev.id)
-            .filter(AlertLog.status.in_(("sent", "muted")))
             .order_by(AlertLog.created_at.desc())
             .first()
         )
@@ -1897,7 +2180,7 @@ def evaluate_online_recovery_alerts(current_scan_id: str):
         online_dedupe_key = make_online_recovery_dedupe_key(dev, offline_dedupe_key)
 
         already = AlertLog.query.filter_by(dedupe_key=online_dedupe_key).first()
-        if already and already.status in ("sent", "muted"):
+        if already:
             continue
 
         offline_start = None
@@ -1967,6 +2250,141 @@ def evaluate_online_recovery_alerts(current_scan_id: str):
                 )
             except Exception:
                 db.session.rollback()
+
+
+OFFLINE_VERIFY_MAX_IPS_PER_DEVICE = 3
+
+
+def get_device_ipv4_candidates(dev: Device) -> list[str]:
+    raw_value = str(dev.ip_address or "").strip()
+    if not raw_value or raw_value == "-":
+        return []
+
+    ips = []
+    seen = set()
+    for part in raw_value.split(","):
+        addr = part.strip()
+        if not addr or addr == "-":
+            continue
+
+        try:
+            ip_obj = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+
+        if ip_obj.version != 4:
+            continue
+
+        normalized = str(ip_obj)
+        if normalized in seen:
+            continue
+
+        seen.add(normalized)
+        ips.append(normalized)
+        if len(ips) >= OFFLINE_VERIFY_MAX_IPS_PER_DEVICE:
+            break
+
+    return ips
+
+
+def build_ipv4_subnet_entries(subnets):
+    entries = []
+    for sn in subnets:
+        cidr = str(sn.cidr or "").strip()
+        if not cidr:
+            continue
+
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+
+        if network.version == 4:
+            entries.append((sn, network))
+
+    return entries
+
+
+def find_subnet_for_ipv4(ip_addr: str, subnet_entries):
+    try:
+        ip_obj = ipaddress.ip_address(ip_addr)
+    except ValueError:
+        return None
+
+    if ip_obj.version != 4:
+        return None
+
+    for sn, network in subnet_entries:
+        if ip_obj in network:
+            return sn
+
+    return None
+
+
+def find_scan_info_for_mac(scan_map: dict, mac_lower: str):
+    for host, info in (scan_map or {}).items():
+        addresses = (info.get("addresses", {}) or {})
+        found_mac = str(addresses.get("mac") or "").strip().lower()
+        if found_mac == mac_lower:
+            return host, info
+
+    return None, None
+
+
+def get_vendor_for_mac(info: dict, mac_lower: str) -> Optional[str]:
+    vendor_map = (info.get("vendor", {}) or {})
+    for vendor_mac, vendor_name in vendor_map.items():
+        if str(vendor_mac or "").strip().lower() == mac_lower and vendor_name:
+            return str(vendor_name)
+
+    return None
+
+
+def verify_missing_known_devices(nm, current_scan_id: str, subnets, scan_ips_per_mac: dict[str, set[str]], seen_pairs: set[Tuple[int, Optional[int]]]) -> None:
+    subnet_entries = build_ipv4_subnet_entries(subnets)
+    candidates = Device.query.filter(Device.last_seen_scan != current_scan_id).all()
+
+    for dev in candidates:
+        mac_lower = str(dev.mac_address or "").strip().lower()
+        if not mac_lower:
+            continue
+
+        for ip_addr in get_device_ipv4_candidates(dev):
+            try:
+                verify_output = nm.scan(hosts=ip_addr, arguments="-sn")
+                verify_map = verify_output.get("scan", {}) or {}
+            except Exception as e:
+                print(f"Offline verify scan error for {ip_addr}: {e}")
+                continue
+
+            _, info = find_scan_info_for_mac(verify_map, mac_lower)
+            if not info:
+                continue
+
+            manufacturer = get_vendor_for_mac(info, mac_lower)
+            if manufacturer:
+                dev.manufacturer = manufacturer
+
+            dev.last_seen_scan = current_scan_id
+            dev.last_seen_at = utc_now()
+            scan_ips_per_mac.setdefault(mac_lower, set()).add(ip_addr)
+
+            sn = find_subnet_for_ipv4(ip_addr, subnet_entries)
+            subnet_id = sn.id if sn else None
+            if sn:
+                dev.last_subnet_id = sn.id
+
+            pair = (dev.id, subnet_id)
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                db.session.add(DeviceSubnetSeen(
+                    scan_id=current_scan_id,
+                    device_id=dev.id,
+                    subnet_id=subnet_id,
+                    seen_at=utc_now()
+                ))
+
+            break
 
 
 def nmap_scan_and_save():
@@ -2143,6 +2561,8 @@ def nmap_scan_and_save():
             except Exception as e:
                 print("DB commit error after ipv6:", e)
                 db.session.rollback()
+
+        verify_missing_known_devices(nm, current_scan_id, subnets, scan_ips_per_mac, seen_pairs)
 
         for mac_lower, dev in existing_devices.items():
             if dev.last_seen_scan == current_scan_id:
@@ -2406,6 +2826,13 @@ def index():
     search_q = request.args.get("search", "").strip()
     sort_field = request.args.get("sort", "ip")
     sort_dir = request.args.get("dir", "asc")
+    review_device_id = None
+    review_device_id_raw = str(request.args.get("review_device_id", "")).strip()
+    if review_device_id_raw:
+        try:
+            review_device_id = int(review_device_id_raw)
+        except Exception:
+            review_device_id = None
 
     q = Device.query
 
@@ -2444,6 +2871,7 @@ def index():
                 continue
             tag_set.add(tag.lower())
     available_tags = sorted(tag_set)
+    quick_filter_tags = parse_tags(get_setting("quick_filter_tags", ""))
     device_by_id = {d.id: d for d in devices}
 
     total_devices = len(devices)
@@ -2566,6 +2994,16 @@ def index():
         reverse_rows = (sort_dir == "desc")
         devices.sort(key=device_key_for_sort, reverse=reverse_rows)
 
+    if review_device_id is not None:
+        review_device = Device.query.filter_by(id=review_device_id).first()
+        if review_device is None:
+            review_device_id = None
+
+    new_device_review_devices = [
+        dev for dev in devices
+        if dev.is_new or (review_device_id is not None and dev.id == review_device_id)
+    ]
+
     lang = get_language()
     theme = get_theme()
     display_tz = get_display_timezone()
@@ -2601,6 +3039,8 @@ def index():
         online_devices=online_devices,
         offline_devices=offline_devices,
         new_devices=new_devices,
+        new_device_review_devices=new_device_review_devices,
+        review_device_id=review_device_id,
         ipv6_enabled=ipv6_enabled,
         last_scan_time=last_scan_time_local,
         configured_scan_interval=configured_scan_interval,
@@ -2609,6 +3049,7 @@ def index():
         has_named_subnets=has_named_subnets,
         subnet_view_mode=subnet_view_mode,
         available_tags=available_tags,
+        quick_filter_tags=quick_filter_tags,
         display_tz=display_tz,
         format_local=format_local,
         t=t,
@@ -2628,7 +3069,14 @@ def get_scan_status():
 @login_required
 def force_scan():
     request_scan_now()
-    return redirect(url_for("index"))
+    return redirect(get_safe_next_url())
+
+
+def get_safe_next_url(default_endpoint="index"):
+    next_url = str(request.form.get("next", "")).strip()
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return next_url
+    return url_for(default_endpoint)
 
 
 @app.route("/update_alias", methods=["POST"])
@@ -2655,6 +3103,20 @@ def update_alias():
             db.session.commit()
             flash(t("FLASH_ALIAS_UPDATED"), "success")
 
+    return redirect(get_safe_next_url())
+
+
+@app.route("/update_quick_tags", methods=["POST"])
+@login_required
+def update_quick_tags():
+    if not current_user.is_admin:
+        flash(t("FLASH_QUICK_TAGS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    raw_tags = request.form.get("quick_tags", "")
+    normalized = normalize_tags(raw_tags) or ""
+    set_setting("quick_filter_tags", normalized)
+    flash(t("FLASH_QUICK_TAGS_UPDATED"), "success")
     return redirect(url_for("index"))
 
 
@@ -2676,7 +3138,7 @@ def update_manufacturer():
             db.session.commit()
             flash(t("FLASH_MANUFACTURER_UPDATED"), "success")
 
-    return redirect(url_for("index"))
+    return redirect(get_safe_next_url())
 
 
 @app.route("/mark_known/<int:device_id>", methods=["POST"])
@@ -2782,6 +3244,178 @@ def backup_db():
         download_name=fname,
         mimetype="application/octet-stream"
     )
+
+
+@app.route("/export_config_snapshot", methods=["POST"])
+@login_required
+def export_config_snapshot():
+    if not current_user.is_admin:
+        flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    include_general = (request.form.get("export_general") == "on")
+    include_notifications = (request.form.get("export_notifications") == "on")
+    include_quiet_hours = (request.form.get("export_quiet_hours") == "on")
+    include_theme_lang = (request.form.get("export_theme_lang") == "on")
+    include_quick_tags = (request.form.get("export_quick_tags") == "on")
+    include_subnets = (request.form.get("export_subnets") == "on")
+
+    if not any([include_general, include_notifications, include_quiet_hours, include_theme_lang, include_quick_tags, include_subnets]):
+        flash(t("FLASH_CONFIG_SNAPSHOT_NOTHING_SELECTED"), "danger")
+        return redirect(url_for("config_eggscan"))
+
+    try:
+        snapshot = build_config_snapshot(
+            include_general=include_general,
+            include_notifications=include_notifications,
+            include_quiet_hours=include_quiet_hours,
+            include_theme_lang=include_theme_lang,
+            include_quick_tags=include_quick_tags,
+            include_subnets=include_subnets,
+        )
+        payload = json.dumps(snapshot, indent=2, ensure_ascii=False).encode("utf-8")
+    except Exception as e:
+        flash(tf("FLASH_CONFIG_SNAPSHOT_EXPORT_FAILED", error=str(e)), "danger")
+        return redirect(url_for("config_eggscan"))
+
+    fname = f"eggscan_config_snapshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    return send_file(
+        io.BytesIO(payload),
+        as_attachment=True,
+        download_name=fname,
+        mimetype="application/json"
+    )
+
+
+@app.route("/import_config_snapshot", methods=["POST"])
+@login_required
+def import_config_snapshot():
+    if not current_user.is_admin:
+        flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    upload = request.files.get("snapshot_file")
+    if upload is None or not str(upload.filename or "").strip():
+        flash(t("FLASH_CONFIG_SNAPSHOT_FILE_MISSING"), "danger")
+        return redirect(url_for("config_eggscan"))
+
+    try:
+        raw = upload.read()
+        if not raw:
+            raise ValueError("empty file")
+        data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        flash(t("FLASH_CONFIG_SNAPSHOT_INVALID_JSON"), "danger")
+        return redirect(url_for("config_eggscan"))
+
+    try:
+        if not isinstance(data, dict):
+            raise ValueError("payload must be an object")
+
+        settings_in = data.get("settings", {})
+        subnets_in = data.get("subnets", [])
+        included_sections_raw = data.get("included_sections", [])
+
+        if not isinstance(settings_in, dict):
+            raise ValueError("settings must be an object")
+        if not isinstance(subnets_in, list):
+            raise ValueError("subnets must be a list")
+
+        sections = set()
+        if isinstance(included_sections_raw, list):
+            for part in included_sections_raw:
+                v = str(part or "").strip().lower()
+                if v:
+                    sections.add(v)
+
+        has_declared_sections = bool(sections)
+
+        import_general = ("general" in sections) if has_declared_sections else bool(settings_in)
+        import_notifications = ("notifications" in sections) if has_declared_sections else bool(settings_in)
+        import_quiet_hours = ("quiet_hours" in sections) if has_declared_sections else bool(settings_in)
+        import_theme_lang = ("theme_lang" in sections) if has_declared_sections else bool(settings_in)
+        import_quick_tags = ("quick_tags" in sections) if has_declared_sections else bool(settings_in)
+        import_subnets = ("subnets" in sections) if has_declared_sections else bool(subnets_in)
+
+        if not any([import_general, import_notifications, import_quiet_hours, import_theme_lang, import_quick_tags, import_subnets]):
+            flash(t("FLASH_CONFIG_SNAPSHOT_NOTHING_SELECTED"), "danger")
+            return redirect(url_for("config_eggscan"))
+
+        settings_updates = {}
+        for key_raw, value_raw in settings_in.items():
+            key = str(key_raw or "").strip()
+            if not key or key in SNAPSHOT_EXCLUDED_SETTING_KEYS:
+                continue
+            is_categorized = key in SNAPSHOT_CATEGORIZED_SETTING_KEYS
+            include_key = False
+
+            if key in SNAPSHOT_NOTIFICATION_SETTING_KEYS and import_notifications:
+                include_key = True
+            elif key in SNAPSHOT_QUIET_SETTING_KEYS and import_quiet_hours:
+                include_key = True
+            elif key in SNAPSHOT_THEME_LANG_SETTING_KEYS and import_theme_lang:
+                include_key = True
+            elif key in SNAPSHOT_QUICK_TAG_SETTING_KEYS and import_quick_tags:
+                include_key = True
+            elif import_general and not is_categorized:
+                include_key = True
+
+            if include_key:
+                settings_updates[key] = str(value_raw or "")
+
+        parsed_subnets = []
+        seen_cidrs = set()
+        for idx, item in enumerate(subnets_in):
+            if not isinstance(item, dict):
+                continue
+
+            cidr_raw = str(item.get("cidr", "")).strip()
+            if not cidr_raw:
+                continue
+
+            try:
+                cidr_norm = str(ipaddress.ip_network(cidr_raw, strict=False))
+            except Exception:
+                continue
+
+            if cidr_norm in seen_cidrs:
+                continue
+            seen_cidrs.add(cidr_norm)
+
+            label_raw = str(item.get("label", "")).strip()
+            parsed_subnets.append({
+                "cidr": cidr_norm,
+                "label": label_raw if label_raw else None,
+                "sort_order": idx,
+            })
+
+        for key, value in settings_updates.items():
+            row = Settings.query.filter_by(key=key).first()
+            if row:
+                row.value = value
+            else:
+                db.session.add(Settings(key=key, value=value))
+
+        if import_subnets:
+            DeviceSubnetSeen.query.delete()
+            Device.query.update({Device.last_subnet_id: None}, synchronize_session=False)
+            SubNetwork.query.delete()
+
+            for idx, sn in enumerate(parsed_subnets):
+                db.session.add(SubNetwork(
+                    cidr=sn["cidr"],
+                    label=sn["label"],
+                    sort_order=idx
+                ))
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(tf("FLASH_CONFIG_SNAPSHOT_IMPORT_FAILED", error=str(e)), "danger")
+        return redirect(url_for("config_eggscan"))
+
+    flash(t("FLASH_CONFIG_SNAPSHOT_IMPORTED"), "success")
+    return redirect(url_for("config_eggscan"))
 
 
 @app.route("/ping_device/<int:device_id>", methods=["POST"])
@@ -3160,12 +3794,31 @@ def config_eggscan():
 
                 for d in all_devices:
                     should_enable = (d.id in enabled_ids)
+                    repeat_enabled = (
+                        should_enable
+                        and request.form.get(f"alert_repeat_{d.id}") == "on"
+                    )
+                    repeat_raw = str(request.form.get(f"alert_repeat_minutes_{d.id}", "")).strip()
+                    try:
+                        repeat_minutes = int(repeat_raw)
+                    except Exception:
+                        repeat_minutes = 60
+                    if repeat_minutes <= 0:
+                        repeat_minutes = 60
+
                     if d.id in existing:
                         existing[d.id].enabled = should_enable
+                        existing[d.id].repeat_enabled = repeat_enabled
+                        existing[d.id].repeat_interval_minutes = repeat_minutes if repeat_enabled else None
                         existing[d.id].updated_at = utc_now()
                     else:
                         if should_enable:
-                            db.session.add(DeviceAlert(device_id=d.id, enabled=True))
+                            db.session.add(DeviceAlert(
+                                device_id=d.id,
+                                enabled=True,
+                                repeat_enabled=repeat_enabled,
+                                repeat_interval_minutes=repeat_minutes if repeat_enabled else None
+                            ))
 
                 for did, row in list(existing.items()):
                     if not row.enabled:
@@ -3294,7 +3947,7 @@ def update_theme():
 
     theme = request.form.get("theme", "").strip().lower()
 
-    allowed = {"default", "dark", "light", "cosmos"}
+    allowed = {"default", "dark", "light", "cosmos", "uplink"}
     if theme not in allowed:
         theme = "default"
 

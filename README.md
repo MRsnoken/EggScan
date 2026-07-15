@@ -135,7 +135,9 @@ EggScan is **not** intended for:
 - Accurate handling of devices present in multiple subnets
 - Subnet display reflects actual scan results (no guessed or historical placement)
 - Upgrade-safe installer with automatic database schema checks<br>
+- Settings search to quickly filter configuration sections
 - One-click admin action to mark all new devices as known
+- New-devices dashboard counter opens a compact review modal with admin actions
 - Database backup download from the Settings page (admin only)
 - Separated scan worker and web UI for improved stability
  - Production-ready web serving via Gunicorn (systemd)

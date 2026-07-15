@@ -36,10 +36,38 @@
           {% endif %}
         {% endwith %}
 
+        <div class="settings-search-panel mb-3">
+          <label for="settingsSearchInput" class="font-weight-bold mb-1">{{ t("SETTINGS_SEARCH_LABEL") }}</label>
+          <div class="input-group">
+            <input
+              type="search"
+              id="settingsSearchInput"
+              class="form-control"
+              placeholder="{{ t('SETTINGS_SEARCH_PLACEHOLDER') }}"
+              autocomplete="off"
+            >
+            <div class="input-group-append">
+              <button type="button" class="btn btn-outline-secondary" id="settingsSearchClear" style="display:none;">
+                {{ t("SETTINGS_SEARCH_CLEAR") }}
+              </button>
+            </div>
+          </div>
+          <small class="form-text text-muted">{{ t("SETTINGS_SEARCH_HINT") }}</small>
+        </div>
+
+        <div id="settingsSearchNoResults" class="alert alert-secondary settings-search-no-results" style="display:none;">
+          {{ t("SETTINGS_SEARCH_NO_RESULTS") }}
+        </div>
+
         {# -------------------------
            SUBNETS
         -------------------------- #}
 
+        <div
+          class="settings-search-section"
+          data-settings-search-section
+          data-settings-search="subnet subnets cidr network nätverk subnät label etikett labels etiketter ipv4 range spann guess gissa delete ta bort"
+        >
         <form method="POST" class="form-inline mb-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="add_subnet">
@@ -97,11 +125,17 @@
         </form>
 
         <hr class="border-secondary">
+        </div>
 
         {# -------------------------
            SUBNET VIEW MODE
         -------------------------- #}
 
+        <div
+          class="settings-search-section"
+          data-settings-search-section
+          data-settings-search="subnet view mode display grouped column visa visning gruppera grupperad kolumn nätverk subnät"
+        >
         <h5 class="mb-3">{{ t("CONFIG_SUBNET_VIEW_MODE") }}</h5>
         <div class="mb-4 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
           <div class="custom-control custom-radio mb-1">
@@ -136,11 +170,17 @@
         </div>
 
         <hr class="border-secondary">
+        </div>
 
         {# -------------------------
            ALERTS
         -------------------------- #}
 
+        <div
+          class="settings-search-section"
+          data-settings-search-section
+          data-settings-search="alerts alert notifications notification notifieringar aviseringar larm apprise discord telegram slack email teams pushover gotify custom webhook quiet hours tysta tider digest offline threshold repeat reminder påminnelse new device nya enheter selected devices subnets test"
+        >
         <h5 class="mb-3">{{ t("ALERTS_TITLE") }}</h5>
 
         {% set active_provider = notify_provider %}
@@ -516,15 +556,18 @@
                   class="form-control"
                   placeholder="{{ t('ALERTS_FILTER_PLACEHOLDER') }}"
                 >
+                <small class="form-text text-muted">{{ t("ALERTS_REPEAT_HINT") }}</small>
               </div>
 
               <div class="table-responsive">
                 <table class="table table-striped table-sm table-theme">
                   <thead>
                     <tr>
-                      <th style="width: 15%;">{{ t("ALERTS_COL_ON") }}</th>
-                      <th style="width: 45%;">{{ t("TABLE_ALIAS") }}</th>
-                      <th style="width: 40%;">{{ t("TABLE_MAC") }}</th>
+                      <th style="width: 12%;">{{ t("ALERTS_COL_ON") }}</th>
+                      <th style="width: 30%;">{{ t("TABLE_ALIAS") }}</th>
+                      <th style="width: 30%;">{{ t("TABLE_MAC") }}</th>
+                      <th style="width: 12%;">{{ t("ALERTS_COL_REPEAT") }}</th>
+                      <th style="width: 16%;">{{ t("ALERTS_COL_REPEAT_INTERVAL") }}</th>
                     </tr>
                   </thead>
                   <tbody id="alertDeviceTbody">
@@ -544,6 +587,27 @@
                       </td>
                       <td class="align-middle">{{ d.alias or '-' }}</td>
                       <td class="align-middle">{{ d.mac_address or '-' }}</td>
+                      <td class="align-middle">
+                        <label class="toggle-switch mb-0">
+                          <input
+                            type="checkbox"
+                            name="alert_repeat_{{ d.id }}"
+                            form="settingsForm"
+                            {% if row and row.enabled and row.repeat_enabled %}checked{% endif %}
+                          >
+                          <span class="toggle-slider"></span>
+                        </label>
+                      </td>
+                      <td class="align-middle">
+                        <input
+                          type="number"
+                          name="alert_repeat_minutes_{{ d.id }}"
+                          form="settingsForm"
+                          class="form-control form-control-sm"
+                          min="1"
+                          value="{{ row.repeat_interval_minutes if row and row.repeat_interval_minutes else 60 }}"
+                        >
+                      </td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -724,11 +788,17 @@
 </script>
 
         <hr class="border-secondary">
+        </div>
 
         {# -------------------------
            OTHER SETTINGS (THEME)
         -------------------------- #}
 
+        <div
+          class="settings-search-section"
+          data-settings-search-section
+          data-settings-search="theme tema dark light cosmos uplink backup database databas snapshot export import configuration config konfiguration settings inställningar quick tags snabbtaggar language språk timezone tidszon"
+        >
         <h5 class="mb-3">{{ t("CONFIG_OTHER_SETTINGS") }}</h5>
 
         <div class="mb-3 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
@@ -744,6 +814,7 @@
                 <option value="dark" {% if theme == 'dark' %}selected{% endif %}>Dark</option>
                 <option value="light" {% if theme == 'light' %}selected{% endif %}>Light</option>
                 <option value="cosmos" {% if theme == 'cosmos' %}selected{% endif %}>Cosmos</option>
+                <option value="uplink" {% if theme == 'uplink' %}selected{% endif %}>Uplink</option>
               </select>
               <button type="submit" class="btn btn-success">{{ t("SAVE_THEME") }}</button>
             </form>
@@ -755,12 +826,89 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-info">{{ t("BACKUP_DB") }}</button>
           </form>
+
+          <hr class="border-secondary my-3">
+
+          <div class="mb-2">
+            <div class="font-weight-bold">{{ t("CONFIG_SNAPSHOT_TITLE") }}</div>
+            <small class="text-muted d-block">{{ t("CONFIG_SNAPSHOT_HINT") }}</small>
+          </div>
+
+          <ul class="mb-2">
+            <li><small>{{ t("CONFIG_SNAPSHOT_SAVES") }}</small></li>
+            <li><small>{{ t("CONFIG_SNAPSHOT_NOT_SAVED") }}</small></li>
+          </ul>
+
+          <button type="button" class="btn btn-outline-primary mb-3" data-toggle="modal" data-target="#snapshotExportModal">
+            {{ t("CONFIG_SNAPSHOT_EXPORT") }}
+          </button>
+
+          <form method="POST" action="{{ url_for('import_config_snapshot') }}" enctype="multipart/form-data" class="mb-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group mb-2">
+              <label for="snapshotFileInput">{{ t("CONFIG_SNAPSHOT_FILE_LABEL") }}</label>
+              <input type="file" id="snapshotFileInput" name="snapshot_file" accept=".json,application/json" class="form-control-file">
+            </div>
+            <small class="text-muted d-block mb-2">{{ t("CONFIG_SNAPSHOT_IMPORT_NOTE") }}</small>
+            <button type="submit" class="btn btn-outline-light">{{ t("CONFIG_SNAPSHOT_IMPORT") }}</button>
+          </form>
+        </div>
+
+        <div class="modal fade" id="snapshotExportModal" tabindex="-1" role="dialog" aria-labelledby="snapshotExportModalLabel" aria-hidden="true">
+          <div class="modal-dialog" role="document">
+            <form method="POST" action="{{ url_for('export_config_snapshot') }}" class="modal-content">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="modal-header">
+                <h5 class="modal-title text-dark" id="snapshotExportModalLabel">{{ t("CONFIG_SNAPSHOT_EXPORT") }}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                  <span aria-hidden="true">&times;</span>
+                </button>
+              </div>
+              <div class="modal-body text-dark">
+                <small class="text-muted d-block mb-2">{{ t("CONFIG_SNAPSHOT_EXPORT_OPTIONS") }}</small>
+                <div class="custom-control custom-checkbox mb-1">
+                  <input class="custom-control-input" type="checkbox" id="exportGeneral" name="export_general" checked>
+                  <label class="custom-control-label" for="exportGeneral">{{ t("CONFIG_SNAPSHOT_OPT_GENERAL") }}</label>
+                </div>
+                <div class="custom-control custom-checkbox mb-1">
+                  <input class="custom-control-input" type="checkbox" id="exportNotifications" name="export_notifications" checked>
+                  <label class="custom-control-label" for="exportNotifications">{{ t("CONFIG_SNAPSHOT_OPT_NOTIFICATIONS") }}</label>
+                </div>
+                <div class="custom-control custom-checkbox mb-1">
+                  <input class="custom-control-input" type="checkbox" id="exportQuietHours" name="export_quiet_hours" checked>
+                  <label class="custom-control-label" for="exportQuietHours">{{ t("CONFIG_SNAPSHOT_OPT_QUIET_HOURS") }}</label>
+                </div>
+                <div class="custom-control custom-checkbox mb-1">
+                  <input class="custom-control-input" type="checkbox" id="exportThemeLang" name="export_theme_lang" checked>
+                  <label class="custom-control-label" for="exportThemeLang">{{ t("CONFIG_SNAPSHOT_OPT_THEME_LANG") }}</label>
+                </div>
+                <div class="custom-control custom-checkbox mb-1">
+                  <input class="custom-control-input" type="checkbox" id="exportQuickTags" name="export_quick_tags" checked>
+                  <label class="custom-control-label" for="exportQuickTags">{{ t("CONFIG_SNAPSHOT_OPT_QUICK_TAGS") }}</label>
+                </div>
+                <div class="custom-control custom-checkbox">
+                  <input class="custom-control-input" type="checkbox" id="exportSubnets" name="export_subnets" checked>
+                  <label class="custom-control-label" for="exportSubnets">{{ t("CONFIG_SNAPSHOT_OPT_SUBNETS") }}</label>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
+                <button type="submit" class="btn btn-primary">{{ t("CONFIG_SNAPSHOT_EXPORT") }}</button>
+              </div>
+            </form>
+          </div>
+        </div>
         </div>
 
         {# -------------------------
            MAIN SETTINGS FORM
         -------------------------- #}
 
+        <div
+          class="settings-search-section"
+          data-settings-search-section
+          data-settings-search="general settings config inställningar language språk timezone tidszon display visning ipv6 scan skanning interval intervall highlight blink new unknown nya okända devices enheter interface network nätverk save spara"
+        >
         <form method="POST" id="settingsForm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="update_settings">
@@ -840,6 +988,7 @@
 
           <button type="submit" class="btn btn-success">{{ t("CONFIG_SAVE_BUTTON") }}</button>
         </form>
+        </div>
 
         <div class="mt-4 text-muted">
           <small>{{ t("INDEX_TITLE") }} - {{ t("VERSION_LABEL") }} {{ version }}</small>
@@ -848,4 +997,63 @@
     </div>
   </div>
 </div>
+<script>
+(function() {
+  var input = document.getElementById("settingsSearchInput");
+  var clearBtn = document.getElementById("settingsSearchClear");
+  var noResults = document.getElementById("settingsSearchNoResults");
+  var sections = Array.from(document.querySelectorAll("[data-settings-search-section]"));
+
+  if (!input || !sections.length) return;
+
+  function normalize(value) {
+    var text = String(value || "");
+    if (typeof text.normalize === "function") {
+      text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+    return text.toLowerCase().trim();
+  }
+
+  function sectionText(section) {
+    return normalize(
+      (section.getAttribute("data-settings-search") || "") + " " +
+      (section.textContent || "")
+    );
+  }
+
+  var indexedSections = sections.map(function(section) {
+    return {
+      element: section,
+      haystack: sectionText(section)
+    };
+  });
+
+  function applySettingsSearch() {
+    var query = normalize(input.value);
+    var active = query.length > 0;
+    var visible = 0;
+
+    indexedSections.forEach(function(item) {
+      var match = !active || item.haystack.indexOf(query) !== -1;
+      item.element.classList.toggle("settings-search-hidden", !match);
+      if (match) visible += 1;
+    });
+
+    if (clearBtn) clearBtn.style.display = active ? "" : "none";
+    if (noResults) noResults.style.display = active && visible === 0 ? "" : "none";
+  }
+
+  input.addEventListener("input", applySettingsSearch);
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function() {
+      input.value = "";
+      applySettingsSearch();
+      input.focus();
+    });
+  }
+
+  applySettingsSearch();
+})();
+</script>
 {% endblock %}

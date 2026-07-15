@@ -110,6 +110,57 @@
         <button type="submit" style="display:none"></button>
       </form>
 
+      {% if quick_filter_tags %}
+      <div class="quick-tag-toolbar mb-3" id="quick-tag-filters" data-active-tag="">
+        <span class="quick-tag-label">{{ t("TAG_FILTER_LABEL") }}</span>
+        <button
+          type="button"
+          class="btn btn-sm quick-filter-chip is-active js-tag-filter"
+          data-tag=""
+          data-base-label="{{ t('TAG_FILTER_ALL') }}"
+        >
+          {{ t("TAG_FILTER_ALL") }}
+        </button>
+        {% for tag in quick_filter_tags %}
+          <button
+            type="button"
+            class="btn btn-sm quick-filter-chip js-tag-filter"
+            data-tag="{{ tag }}"
+            data-base-label="{{ tag }}"
+          >
+            {{ tag }}
+          </button>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if current_user.is_admin %}
+      <details class="quick-tags-admin mb-3">
+        <summary class="quick-tags-admin-summary">{{ t("QUICK_TAGS_MANAGE") }}</summary>
+        <form method="POST" action="{{ url_for('update_quick_tags') }}" class="mt-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="mb-1 text-light">{{ t("QUICK_TAGS_ADMIN_LABEL") }}</label>
+          <div
+            class="tag-input mb-1"
+            data-tags-initial="{{ quick_filter_tags | join(', ') }}"
+            data-remove-confirm="{{ t('QUICK_TAGS_CONFIRM_REMOVE') }}"
+          >
+            <div class="tag-chip-list"></div>
+            <input
+              type="text"
+              class="tag-input-field"
+              placeholder="{{ t('QUICK_TAGS_PLACEHOLDER') }}"
+              list="deviceTagList"
+              autocomplete="off"
+            >
+            <input type="hidden" name="quick_tags" value="{{ quick_filter_tags | join(', ') }}">
+          </div>
+          <small class="form-text text-muted mb-2">{{ t("QUICK_TAGS_HINT") }}</small>
+          <button type="submit" class="btn btn-sm btn-outline-light">{{ t("QUICK_TAGS_SAVE") }}</button>
+        </form>
+      </details>
+      {% endif %}
+
       <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
           {% if current_user.is_admin %}
@@ -125,8 +176,9 @@
             </form>
           {% endif %}
         </div>
-        <form method="POST" action="{{ url_for('force_scan') }}" class="mb-0">
+        <form method="POST" action="{{ url_for('force_scan') }}" class="mb-0" data-preserve-current-url="1">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
           <button type="submit" class="btn btn-sm btn-primary">{{ t("SCAN_NOW") }}</button>
         </form>
       </div>
@@ -141,10 +193,16 @@
           </div>
 
           <div class="col-md-6 col-sm-12 mb-2">
-            <div class="stat-card">
-              <div class="stat-label">{{ t("STATS_NEW_DEVICES_LABEL") }}</div>
-              <div class="stat-value">{{ new_devices }}</div>
-            </div>
+            <button
+              type="button"
+              class="stat-card stat-card-button"
+              data-toggle="modal"
+              data-target="#newDevicesModal"
+              aria-label="{{ t("NEW_DEVICES_MODAL_TITLE") }}"
+            >
+              <span class="stat-label d-block">{{ t("STATS_NEW_DEVICES_LABEL") }}</span>
+              <span class="stat-value d-block" id="statsNewDevicesCount">{{ new_devices }}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -170,7 +228,7 @@
         <div class="status-item">
           <span class="status-dot-new"></span>
           <span class="status-label">{{ t("STATUSBAR_NEW") }}:</span>
-          <span class="status-value">{{ new_devices }}</span>
+          <span class="status-value" id="statusbarNewCount">{{ new_devices }}</span>
         </div>
 
         <div class="status-item">
@@ -306,6 +364,7 @@
                     data-mac="{{ dev.mac_address }}"
                     data-is-new="{{ '1' if dev.is_new else '0' }}"
                     data-status="{{ status_value }}"
+                    data-tags="{{ (dev.tags or '') | lower }}"
                     data-search="{{ (grp.title ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '') ~ ' ' ~ (dev.tags or '')) | lower }}"
                   >
                     <td class="align-middle">
@@ -425,6 +484,7 @@
                   data-mac="{{ dev.mac_address }}"
                   data-is-new="{{ '1' if dev.is_new else '0' }}"
                   data-status="{{ status_value }}"
+                  data-tags="{{ (dev.tags or '') | lower }}"
                   data-search="{{ ((subnet_label if show_subnet else '') ~ ' ' ~ (dev.ip_address or '') ~ ' ' ~ (dev.mac_address or '') ~ ' ' ~ (dev.alias or '') ~ ' ' ~ (dev.manufacturer or '') ~ ' ' ~ (dev.tags or '')) | lower }}"
                 >
                   {% if show_subnet %}
@@ -526,12 +586,128 @@
         </table>
       </div>
 
+      <div class="modal fade" id="newDevicesModal" tabindex="-1" role="dialog" aria-labelledby="newDevicesModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title text-dark" id="newDevicesModalLabel">{{ t("NEW_DEVICES_MODAL_TITLE") }}</h5>
+              <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+              <div id="newDevicesModalEmpty" class="text-muted text-center py-3" {% if new_device_review_devices|length > 0 %}style="display:none;"{% endif %}>
+                {{ t("NEW_DEVICES_MODAL_EMPTY") }}
+              </div>
+
+              {% if new_device_review_devices|length > 0 %}
+                <div class="table-responsive" id="newDevicesModalTableWrap">
+                  <table class="table table-sm mb-0 table-theme new-devices-review-table">
+                    <thead>
+                      <tr>
+                        <th>{{ t("TABLE_IP") }}</th>
+                        <th>{{ t("TABLE_MAC") }}</th>
+                        <th>{{ t("TABLE_ALIAS") }}</th>
+                        <th>{{ t("TABLE_MANUFACTURER") }}</th>
+                        <th>{{ t("TABLE_LAST_SEEN") }}</th>
+                        <th>{{ t("TABLE_STATUS") }}</th>
+                        <th>{{ t("TABLE_ACTIONS") }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for dev in new_device_review_devices %}
+                          {% if dev.last_seen_scan == last_scan_id %}
+                            {% set status_text = "Online" %}
+                            {% set status_class = "status-badge-online" %}
+                          {% else %}
+                            {% set status_text = "Offline" %}
+                            {% set status_class = "status-badge-offline" %}
+                          {% endif %}
+                          {% set is_review_done = review_device_id and dev.id == review_device_id and not dev.is_new %}
+
+                          <tr
+                            class="new-device-review-row{% if is_review_done %} new-device-review-row-done{% endif %}"
+                            data-device-id="{{ dev.id }}"
+                            data-is-new="{{ '1' if dev.is_new else '0' }}"
+                          >
+                            <td class="align-middle">
+                              {% if dev.ip_address and dev.ip_address != "-" %}
+                                {% set modal_ip_list = dev.ip_address.split(",") %}
+                                {{ modal_ip_list[0] | trim }}
+                                {% if modal_ip_list|length > 1 %}
+                                  <button type="button" class="btn btn-link btn-sm p-0 ml-1"
+                                          data-open-related-modal="#ipModal{{ dev.id }}">
+                                    (+{{ modal_ip_list|length - 1 }} more)
+                                  </button>
+                                {% endif %}
+                              {% else %}
+                                -
+                              {% endif %}
+                            </td>
+                            <td class="align-middle"><code>{{ dev.mac_address or "N/A" }}</code></td>
+                            <td class="align-middle">
+                              <button type="button" class="btn btn-link btn-sm p-0 text-left"
+                                      data-open-related-modal="#aliasModal{{ dev.id }}">
+                                {% if dev.alias %}{{ dev.alias }}{% else %}{{ t("ALIAS_NONE") }}{% endif %}
+                              </button>
+                            </td>
+                            <td class="align-middle">
+                              <button type="button" class="btn btn-link btn-sm p-0 text-left"
+                                      data-open-related-modal="#manufacturerModal{{ dev.id }}">
+                                {% if dev.manufacturer %}{{ dev.manufacturer }}{% else %}{{ t("MANUFACTURER_UNKNOWN") }}{% endif %}
+                              </button>
+                            </td>
+                            <td class="align-middle">
+                              {% if dev.last_seen_at %}
+                                {{ format_local(dev.last_seen_at, display_tz) }}
+                              {% else %}
+                                -
+                              {% endif %}
+                            </td>
+                            <td class="align-middle">
+                              <span class="{{ status_class }}">{{ status_text }}</span>
+                            </td>
+                            <td class="align-middle">
+                              {% if current_user.is_admin %}
+                                <div class="d-flex flex-wrap">
+                                  {% if dev.is_new %}
+                                    <button
+                                      type="button"
+                                      class="btn btn-warning btn-sm mr-1 mb-1 js-mark-known"
+                                      data-device-id="{{ dev.id }}"
+                                    >
+                                      {{ t("MARK_KNOWN") }}
+                                    </button>
+                                  {% else %}
+                                    <span class="badge badge-success mr-1 mb-1 align-self-center">{{ t("DEVICE_KNOWN") }}</span>
+                                  {% endif %}
+                                  <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}" class="mb-1">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
+                                      {{ t("DELETE") }}
+                                    </button>
+                                  </form>
+                                </div>
+                              {% else %}
+                                -
+                              {% endif %}
+                            </td>
+                          </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {% for dev in devices %}
 
         <div class="modal fade" id="aliasModal{{ dev.id }}" tabindex="-1" role="dialog" aria-labelledby="aliasModalLabel{{ dev.id }}" aria-hidden="true">
           <div class="modal-dialog" role="document">
             <form method="POST" action="{{ url_for('update_alias') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="">
               <div class="modal-content">
                 <div class="modal-header">
                   <h5 class="modal-title text-dark" id="aliasModalLabel{{ dev.id }}">{{ t("ALIAS_MODAL_TITLE") }}</h5>
@@ -579,6 +755,7 @@
           <div class="modal-dialog" role="document">
             <form method="POST" action="{{ url_for('update_manufacturer') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="">
               <div class="modal-content">
                 <div class="modal-header">
                   <h5 class="modal-title text-dark" id="manufacturerModalLabel{{ dev.id }}">{{ t("MANUFACTURER_MODAL_TITLE") }}</h5>
