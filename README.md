@@ -225,27 +225,39 @@ For advanced users only.
 </details>
 <details>
 <summary><strong> Uninstallation </strong> ⬇</summary>
-To remove EggScan manually, delete:
+
+To keep your data for a later restore, back up these files before removing EggScan:
 
 ```bash
-/opt/eggscan/
-/lib/systemd/system/eggscan-web.service
-/lib/systemd/system/eggscan-scan.service
-# (or /etc/systemd/system/ depending on your distro)
+mkdir -p ~/eggscan-backup
+sudo cp -a /opt/eggscan/eggscan.db ~/eggscan-backup/
+sudo cp -a /opt/eggscan/secret_key.txt ~/eggscan-backup/
 ```
-Optional data files:
+
+`eggscan.db` contains devices, users, settings, history and alerts.  
+`secret_key.txt` should be kept with the database if you plan to restore later.
+
+To remove EggScan completely:
 
 ```bash
-/opt/eggscan/secret_key.txt
-/opt/eggscan/eggscan.db
-```
-Then run:
+sudo systemctl stop eggscan-web.service eggscan-scan.service eggscan.service
+sudo systemctl disable eggscan-web.service eggscan-scan.service eggscan.service
 
-```bash
-sudo systemctl stop eggscan-web.service eggscan-scan.service
-sudo systemctl disable eggscan-web.service eggscan-scan.service
+sudo rm -rf /opt/eggscan
+
+sudo rm -f /lib/systemd/system/eggscan-web.service
+sudo rm -f /lib/systemd/system/eggscan-scan.service
+sudo rm -f /lib/systemd/system/eggscan.service
+
+sudo rm -f /etc/systemd/system/eggscan-web.service
+sudo rm -f /etc/systemd/system/eggscan-scan.service
+sudo rm -f /etc/systemd/system/eggscan.service
+
 sudo systemctl daemon-reload
+sudo systemctl reset-failed
 ```
+
+System packages such as Python, Nmap and SQLite are not removed, since they may be used by other software.
 
 </details>
 
