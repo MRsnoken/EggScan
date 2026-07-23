@@ -1,0 +1,12 @@
+[Unit]
+Description=EggScan - Update from latest GitHub release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/local/sbin/eggscan-update
+TimeoutStartSec=30min

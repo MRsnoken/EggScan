@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+## [1.8.0] - 2026-07-23
+
+### Added
+  -  About page showing installed version, install paths and runtime details.
+  -  Admin-only update check on the About page using the latest GitHub release.
+  -  Admin-only updater on the About page with start control, status and latest log output.
+
+### Changed
+  -  Installer now creates a dedicated `eggscan` system user/group and runs the web UI service as that user instead of root.
+  -  Scan worker service now runs as the dedicated `eggscan` user with limited network capabilities for scanning.
+
+### Fixed
+  -  Scan requests now work with older databases even if the `settings.key` unique index is missing.
+  -  Nmap host discovery now requests privileged scan mode when running under the hardened scan worker service.
+
 ## [1.7.0] 
 
 ## Added

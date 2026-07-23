@@ -15,14 +15,22 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="/opt/eggscan"
 VENV_DIR="$INSTALL_DIR/venv"
+APP_USER="eggscan"
+APP_GROUP="eggscan"
 
 WEB_SERVICE_FILE="/lib/systemd/system/eggscan-web.service"
 SCAN_SERVICE_FILE="/lib/systemd/system/eggscan-scan.service"
+UPDATE_SERVICE_FILE="/lib/systemd/system/eggscan-update.service"
+UPDATER_SCRIPT_FILE="/usr/local/sbin/eggscan-update"
+UPDATE_SUDOERS_FILE="/etc/sudoers.d/eggscan-update"
+UPDATE_SERVICE_NAME="eggscan-update.service"
 OLD_SERVICE_FILE="/lib/systemd/system/eggscan.service"
 
 DB_PATH="$INSTALL_DIR/eggscan.db"
 SECRET_PATH="$INSTALL_DIR/secret_key.txt"
 APP_MAIN="$INSTALL_DIR/eggscan.py"
+UPDATER_SOURCE="$SCRIPT_DIR/scripts/eggscan-update"
+UPDATER_SERVICE_SOURCE="$SCRIPT_DIR/systemd/eggscan-update.service"
 
 IS_UPGRADE=0
 if [ -f "$DB_PATH" ] || [ -f "$SECRET_PATH" ] || [ -f "$APP_MAIN" ]; then
@@ -32,8 +40,12 @@ fi
 echo "Installing from directory: $SCRIPT_DIR"
 echo "Install directory: $INSTALL_DIR"
 echo "Virtualenv: $VENV_DIR"
+echo "Web service user: $APP_USER"
 echo "Web service file: $WEB_SERVICE_FILE"
 echo "Scan service file: $SCAN_SERVICE_FILE"
+echo "Update service file: $UPDATE_SERVICE_FILE"
+echo "Updater script: $UPDATER_SCRIPT_FILE"
+echo "Updater sudoers file: $UPDATE_SUDOERS_FILE"
 echo
 
 check_dpkg_lock() {
@@ -56,6 +68,137 @@ need_cmd() {
   fi
 }
 
+ensure_app_user() {
+  echo "Ensuring dedicated system user/group exists: $APP_USER"
+  local nologin_shell="/usr/sbin/nologin"
+  if [ ! -x "$nologin_shell" ]; then
+    nologin_shell="/bin/false"
+  fi
+
+  if ! getent group "$APP_GROUP" >/dev/null 2>&1; then
+    groupadd --system "$APP_GROUP"
+  fi
+
+  if ! id -u "$APP_USER" >/dev/null 2>&1; then
+    useradd \
+      --system \
+      --no-create-home \
+      --home-dir "$INSTALL_DIR" \
+      --shell "$nologin_shell" \
+      --gid "$APP_GROUP" \
+      "$APP_USER"
+  fi
+}
+
+set_app_permissions() {
+  echo "Setting EggScan file permissions..."
+
+  chown root:"$APP_GROUP" "$INSTALL_DIR"
+  chmod 1775 "$INSTALL_DIR"
+
+  if [ -f "$APP_MAIN" ]; then
+    chown root:root "$APP_MAIN"
+    chmod 755 "$APP_MAIN"
+  fi
+
+  for p in "$INSTALL_DIR/version.json" "$INSTALL_DIR/CHANGELOG.md" "$INSTALL_DIR/README.md" "$INSTALL_DIR/LICENSE" "$INSTALL_DIR/requirements.txt" "$INSTALL_DIR/install_eggscan.sh"; do
+    if [ -e "$p" ]; then
+      chown root:root "$p"
+      if [ "$(basename "$p")" = "install_eggscan.sh" ]; then
+        chmod 755 "$p" || true
+      else
+        chmod 644 "$p" || true
+      fi
+    fi
+  done
+
+  for d in "$INSTALL_DIR/templates" "$INSTALL_DIR/static" "$INSTALL_DIR/scripts" "$INSTALL_DIR/systemd"; do
+    if [ -d "$d" ]; then
+      chown -R root:root "$d"
+      find "$d" -type d -exec chmod 755 {} \;
+      find "$d" -type f -exec chmod 644 {} \;
+    fi
+  done
+
+  if [ -f "$INSTALL_DIR/scripts/eggscan-update" ]; then
+    chmod 755 "$INSTALL_DIR/scripts/eggscan-update" || true
+  fi
+
+  if [ -d "$VENV_DIR" ]; then
+    chown -R root:root "$VENV_DIR"
+  fi
+
+  if [ -f "$SECRET_PATH" ]; then
+    chown "$APP_USER:$APP_GROUP" "$SECRET_PATH"
+    chmod 600 "$SECRET_PATH"
+  fi
+
+  for f in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
+    if [ -e "$f" ]; then
+      chown "$APP_USER:$APP_GROUP" "$f"
+      chmod 660 "$f" || true
+    fi
+  done
+}
+
+secure_backup_dir() {
+  local dir="$1"
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    return
+  fi
+
+  chown root:root "$dir" || true
+  chmod 700 "$dir" || true
+  chown -R root:root "$dir" || true
+  find "$dir" -type d -exec chmod 700 {} \; 2>/dev/null || true
+  find "$dir" -type f -exec chmod 600 {} \; 2>/dev/null || true
+
+  for f in "$dir/eggscan.db" "$dir/eggscan.db-wal" "$dir/eggscan.db-shm" "$dir/secret_key.txt"; do
+    if [ -e "$f" ]; then
+      chown root:root "$f" || true
+      chmod 600 "$f" || true
+    fi
+  done
+}
+
+install_update_sudoers() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "NOTE: sudo not found - web-triggered updates will not be available."
+    return
+  fi
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "NOTE: systemctl not found - web-triggered updates will not be available."
+    return
+  fi
+
+  local systemctl_bin
+  local sudoers_tmp
+  systemctl_bin="$(command -v systemctl)"
+  sudoers_tmp="$(mktemp)"
+
+  {
+    echo "# Allow EggScan web UI to queue only its updater service."
+    echo "$APP_USER ALL=(root) NOPASSWD: $systemctl_bin --no-block start $UPDATE_SERVICE_NAME"
+    if [ "$systemctl_bin" != "/usr/bin/systemctl" ] && [ -x "/usr/bin/systemctl" ]; then
+      echo "$APP_USER ALL=(root) NOPASSWD: /usr/bin/systemctl --no-block start $UPDATE_SERVICE_NAME"
+    fi
+    if [ "$systemctl_bin" != "/bin/systemctl" ] && [ -x "/bin/systemctl" ]; then
+      echo "$APP_USER ALL=(root) NOPASSWD: /bin/systemctl --no-block start $UPDATE_SERVICE_NAME"
+    fi
+  } > "$sudoers_tmp"
+
+  chown root:root "$sudoers_tmp"
+  chmod 440 "$sudoers_tmp"
+
+  if command -v visudo >/dev/null 2>&1; then
+    visudo -cf "$sudoers_tmp" >/dev/null
+  fi
+
+  install -D -o root -g root -m 440 "$sudoers_tmp" "$UPDATE_SUDOERS_FILE"
+  rm -f "$sudoers_tmp"
+}
+
 # ------------------------------------------------------------------------------
 # 2. Install system packages
 # ------------------------------------------------------------------------------
@@ -64,16 +207,21 @@ echo "Updating package index..."
 check_dpkg_lock
 apt-get update -y
 
-echo "Installing system packages (python3, pip, venv, nmap, iproute2, sqlite3, rsync, psmisc)..."
+echo "Installing system packages (python3, pip, venv, nmap, iproute2, sqlite3, rsync, psmisc, sudo)..."
 check_dpkg_lock
-apt-get install -y python3 python3-pip python3-venv nmap iproute2 sqlite3 rsync psmisc
+apt-get install -y python3 python3-pip python3-venv nmap iproute2 sqlite3 rsync psmisc sudo
 
 need_cmd rsync
 need_cmd sqlite3
 need_cmd fuser
+need_cmd install
+need_cmd sudo
 
 echo
 echo "System packages done."
+echo
+
+ensure_app_user
 echo
 
 # ------------------------------------------------------------------------------
@@ -151,6 +299,7 @@ BACKUP_DIR=""
 if [ "$IS_UPGRADE" -eq 1 ]; then
   BACKUP_DIR="$INSTALL_DIR/_backup_$(date +%Y%m%d_%H%M%S)"
   mkdir -p "$BACKUP_DIR"
+  secure_backup_dir "$BACKUP_DIR"
 fi
 
 if [ -n "$BACKUP_DIR" ] && [ -f "$APP_MAIN" ]; then
@@ -168,6 +317,8 @@ if [ -n "$BACKUP_DIR" ] && [ -f "$SECRET_PATH" ]; then
   cp -a "$SECRET_PATH" "$BACKUP_DIR/secret_key.txt"
 fi
 
+secure_backup_dir "$BACKUP_DIR"
+
 if [ -n "$BACKUP_DIR" ] && [ -d "$INSTALL_DIR/templates" ]; then
   echo "Backing up existing templates/ to $BACKUP_DIR/"
   cp -a "$INSTALL_DIR/templates" "$BACKUP_DIR/" || true
@@ -178,8 +329,19 @@ if [ -n "$BACKUP_DIR" ] && [ -d "$INSTALL_DIR/static" ]; then
   cp -a "$INSTALL_DIR/static" "$BACKUP_DIR/" || true
 fi
 
+secure_backup_dir "$BACKUP_DIR"
+
 cp -a "$SCRIPT_DIR/eggscan.py" "$APP_MAIN"
 chmod 755 "$APP_MAIN"
+
+if [ -f "$SCRIPT_DIR/install_eggscan.sh" ]; then
+  cp -a "$SCRIPT_DIR/install_eggscan.sh" "$INSTALL_DIR/install_eggscan.sh"
+  chmod 755 "$INSTALL_DIR/install_eggscan.sh"
+elif [ -f "$SCRIPT_DIR/install.sh" ]; then
+  echo "NOTE: install.sh found; copying it as install_eggscan.sh."
+  cp -a "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install_eggscan.sh"
+  chmod 755 "$INSTALL_DIR/install_eggscan.sh"
+fi
 
 if [ -f "$SCRIPT_DIR/version.json" ]; then
   cp -a "$SCRIPT_DIR/version.json" "$INSTALL_DIR/version.json"
@@ -199,6 +361,16 @@ if [ -d "$SCRIPT_DIR/static" ]; then
   rsync -a --delete "$SCRIPT_DIR/static/" "$INSTALL_DIR/static/"
 else
   echo "NOTE: static/ not found in installer source; leaving existing static as-is."
+fi
+
+if [ -d "$SCRIPT_DIR/scripts" ]; then
+  mkdir -p "$INSTALL_DIR/scripts"
+  rsync -a --delete "$SCRIPT_DIR/scripts/" "$INSTALL_DIR/scripts/"
+fi
+
+if [ -d "$SCRIPT_DIR/systemd" ]; then
+  mkdir -p "$INSTALL_DIR/systemd"
+  rsync -a --delete "$SCRIPT_DIR/systemd/" "$INSTALL_DIR/systemd/"
 fi
 
 if [ -f "$SCRIPT_DIR/CHANGELOG.md" ]; then
@@ -228,7 +400,29 @@ echo
 # 6. Database schema bootstrap
 # ------------------------------------------------------------------------------
 
-echo "Skipping DB schema bootstrap (schema is handled automatically at startup)."
+set_app_permissions
+
+echo "Bootstrapping database schema as $APP_USER..."
+if command -v runuser >/dev/null 2>&1; then
+  (
+    cd "$INSTALL_DIR"
+    runuser -u "$APP_USER" -- env PYTHONUNBUFFERED=1 "$PYTHON_BIN" - << 'EOF'
+import eggscan
+print(" Database schema looks OK.")
+EOF
+  )
+else
+  echo "WARNING: runuser not found; bootstrapping as root and fixing ownership afterwards."
+  (
+    cd "$INSTALL_DIR"
+    "$PYTHON_BIN" - << 'EOF'
+import eggscan
+print(" Database schema looks OK.")
+EOF
+  )
+fi
+
+set_app_permissions
 echo
 
 # ------------------------------------------------------------------------------
@@ -239,6 +433,7 @@ echo
 echo "Creating systemd units:"
 echo "  Web:  $WEB_SERVICE_FILE"
 echo "  Scan: $SCAN_SERVICE_FILE"
+echo "  Update: $UPDATE_SERVICE_FILE (manual oneshot, not enabled)"
 echo
 
 old_unit_exists=0
@@ -266,6 +461,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=$APP_USER
+Group=$APP_GROUP
 WorkingDirectory=$INSTALL_DIR
 Environment="PYTHONUNBUFFERED=1"
 ExecStart=$VENV_DIR/bin/gunicorn -w 2 --threads 2 -b 0.0.0.0:5000 --access-logfile - --error-logfile - eggscan:app
@@ -286,6 +483,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=$APP_USER
+Group=$APP_GROUP
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=false
 WorkingDirectory=$INSTALL_DIR
 Environment="PYTHONUNBUFFERED=1"
 ExecStart=$PYTHON_BIN $INSTALL_DIR/eggscan.py scan-worker
@@ -297,6 +499,37 @@ WantedBy=multi-user.target
 EOF
 
 chmod 644 "$SCAN_SERVICE_FILE"
+
+if [ -f "$UPDATER_SOURCE" ]; then
+  echo "Installing updater script: $UPDATER_SCRIPT_FILE"
+  install -D -o root -g root -m 755 "$UPDATER_SOURCE" "$UPDATER_SCRIPT_FILE"
+
+  echo "Creating updater systemd unit: $UPDATE_SERVICE_FILE"
+  if [ -f "$UPDATER_SERVICE_SOURCE" ]; then
+    install -D -o root -g root -m 644 "$UPDATER_SERVICE_SOURCE" "$UPDATE_SERVICE_FILE"
+  else
+    cat > "$UPDATE_SERVICE_FILE" <<EOF
+[Unit]
+Description=EggScan - Update from latest GitHub release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=$UPDATER_SCRIPT_FILE
+TimeoutStartSec=30min
+EOF
+    chmod 644 "$UPDATE_SERVICE_FILE"
+  fi
+  echo "Creating restricted updater sudoers rule: $UPDATE_SUDOERS_FILE"
+  install_update_sudoers
+  echo "Updater service is installed but not enabled at boot."
+else
+  echo "NOTE: updater script not found at $UPDATER_SOURCE - updater service not installed."
+fi
 
 systemctl daemon-reload
 

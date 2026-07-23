@@ -170,7 +170,8 @@ The installer will:
 - Create a Python virtual environment
 - Install Python dependencies inside the venv
 - Copy application files to /opt/eggscan
-- Create two systemd services (`eggscan-web.service` and `eggscan-scan.service`)
+- Create the main systemd services (`eggscan-web.service` and `eggscan-scan.service`)
+- Install the manual updater service (`eggscan-update.service`, not enabled at boot)
 - Start EggScan automatically
 
 
@@ -219,45 +220,50 @@ You must also manually create:
 
 - a virtual environment
 - two systemd service files (web + scan worker)
+- optional updater helper/service if you want the built-in update flow
 - a directory structure under /opt/eggscan
 
 For advanced users only.
 </details>
 <details>
 <summary><strong> Uninstallation </strong> ⬇</summary>
-
-To keep your data for a later restore, back up these files before removing EggScan:
+To remove EggScan completely, stop and disable the services first:
 
 ```bash
-mkdir -p ~/eggscan-backup
-sudo cp -a /opt/eggscan/eggscan.db ~/eggscan-backup/
-sudo cp -a /opt/eggscan/secret_key.txt ~/eggscan-backup/
+sudo systemctl stop eggscan-web.service eggscan-scan.service eggscan-update.service 2>/dev/null || true
+sudo systemctl disable eggscan-web.service eggscan-scan.service 2>/dev/null || true
 ```
 
-`eggscan.db` contains devices, users, settings, history and alerts.  
-`secret_key.txt` should be kept with the database if you plan to restore later.
-
-To remove EggScan completely:
+If you may want to restore EggScan later, back up these files before deleting `/opt/eggscan`:
 
 ```bash
-sudo systemctl stop eggscan-web.service eggscan-scan.service eggscan.service
-sudo systemctl disable eggscan-web.service eggscan-scan.service eggscan.service
+/opt/eggscan/secret_key.txt
+/opt/eggscan/eggscan.db
+```
 
-sudo rm -rf /opt/eggscan
+Then remove the application, service files and updater helper:
 
+```bash
+sudo rm -rf /opt/eggscan/
 sudo rm -f /lib/systemd/system/eggscan-web.service
 sudo rm -f /lib/systemd/system/eggscan-scan.service
-sudo rm -f /lib/systemd/system/eggscan.service
-
+sudo rm -f /lib/systemd/system/eggscan-update.service
 sudo rm -f /etc/systemd/system/eggscan-web.service
 sudo rm -f /etc/systemd/system/eggscan-scan.service
-sudo rm -f /etc/systemd/system/eggscan.service
-
+sudo rm -f /etc/systemd/system/eggscan-update.service
+sudo rm -f /usr/local/sbin/eggscan-update
+sudo rm -f /var/log/eggscan-update.log
+sudo rm -rf /var/lib/eggscan/
 sudo systemctl daemon-reload
 sudo systemctl reset-failed
 ```
 
-System packages such as Python, Nmap and SQLite are not removed, since they may be used by other software.
+If the dedicated system user/group exists and you no longer need it:
+
+```bash
+sudo userdel eggscan 2>/dev/null || true
+sudo groupdel eggscan 2>/dev/null || true
+```
 
 </details>
 

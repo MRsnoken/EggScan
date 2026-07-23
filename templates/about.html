@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t("ABOUT_TITLE") }} - {{ t("INDEX_TITLE") }} v{{ version }}{% endblock %}
+{% block body_class %}page-app page-about{% endblock %}
+
+{% block content %}
+<div class="page-shell">
+  <div class="container">
+    <div class="card card-main about-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h5 class="mb-0">{{ t("ABOUT_TITLE") }}</h5>
+          <small class="text-muted">{{ t("VERSION_LABEL") }} {{ version }}</small>
+        </div>
+        <div>
+          <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm">{{ t("BACK") }}</a>
+          {% if current_user.is_admin %}
+            <a href="{{ url_for('config_eggscan') }}" class="btn btn-outline-light btn-sm">{{ t("SETTINGS") }}</a>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card-body">
+        <div class="about-summary mb-3">
+          <div class="about-version-label">{{ t("ABOUT_CURRENT_VERSION") }}</div>
+          <div class="about-version-value">{{ about_info.version }}</div>
+          <div class="text-muted">{{ t("ABOUT_SERVICE_NOTE") }}</div>
+        </div>
+
+        {% if current_user.is_admin %}
+          <div
+            class="about-section about-update-section"
+            id="aboutUpdatePanel"
+            data-url="{{ url_for('api_update_check') }}"
+            data-checking="{{ t('ABOUT_UPDATE_CHECKING') }}"
+            data-current="{{ t('ABOUT_UPDATE_CURRENT') }}"
+            data-available="{{ t('ABOUT_UPDATE_AVAILABLE') }}"
+            data-unknown="{{ t('ABOUT_UPDATE_UNKNOWN') }}"
+            data-error="{{ t('ABOUT_UPDATE_ERROR') }}"
+          >
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+              <div class="mb-2 mb-sm-0">
+                <h6>{{ t("ABOUT_UPDATE_TITLE") }}</h6>
+                <div class="text-muted small">{{ t("ABOUT_UPDATE_HINT") }}</div>
+              </div>
+              <button type="button" class="btn btn-outline-info btn-sm" id="aboutUpdateButton">
+                {{ t("ABOUT_CHECK_UPDATES") }}
+              </button>
+            </div>
+
+            <div class="about-update-status mt-3" id="aboutUpdateStatus" data-state="idle">
+              <span id="aboutUpdateMessage">{{ t("ABOUT_UPDATE_CHECKING") }}</span>
+            </div>
+
+            <div class="about-update-details mt-2" id="aboutUpdateDetails" style="display:none;">
+              <span class="mr-3">
+                {{ t("ABOUT_UPDATE_LATEST_VERSION") }}:
+                <strong id="aboutUpdateLatest">-</strong>
+              </span>
+              <span class="mr-3">
+                {{ t("ABOUT_UPDATE_LAST_CHECKED") }}:
+                <strong id="aboutUpdateChecked">-</strong>
+              </span>
+              <a
+                href="{{ about_info.repo_url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                id="aboutUpdateReleaseLink"
+              >
+                {{ t("ABOUT_UPDATE_RELEASE_LINK") }}
+              </a>
+            </div>
+          </div>
+
+          <div
+            class="about-section about-updater-status-section"
+            id="aboutUpdaterStatusPanel"
+            data-url="{{ url_for('api_updater_status') }}"
+            data-start-url="{{ url_for('api_updater_start') }}"
+            data-error="{{ t('ABOUT_UPDATER_ERROR') }}"
+            data-no-status="{{ t('ABOUT_UPDATER_NO_STATUS') }}"
+            data-log-empty="{{ t('ABOUT_UPDATER_LOG_EMPTY') }}"
+            data-starting="{{ t('ABOUT_UPDATER_STARTING') }}"
+            data-started="{{ t('ABOUT_UPDATER_STARTED') }}"
+            data-start-error="{{ t('ABOUT_UPDATER_START_ERROR') }}"
+            data-confirm="{{ t('ABOUT_UPDATER_CONFIRM') }}"
+          >
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+              <div class="mb-2 mb-sm-0">
+                <h6>{{ t("ABOUT_UPDATER_STATUS_TITLE") }}</h6>
+                <div class="text-muted small">{{ t("ABOUT_UPDATER_STATUS_HINT") }}</div>
+              </div>
+              <div class="about-updater-actions">
+                <button type="button" class="btn btn-info btn-sm" id="aboutUpdaterStartButton" disabled>
+                  {{ t("ABOUT_UPDATER_START") }}
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="aboutUpdaterRefreshButton">
+                  {{ t("ABOUT_UPDATER_REFRESH") }}
+                </button>
+              </div>
+            </div>
+
+            <div class="table-responsive mt-3">
+              <table class="table table-sm table-theme about-table mb-0">
+                <tbody>
+                  <tr>
+                    <th>{{ t("ABOUT_UPDATER_STATE") }}</th>
+                    <td><code id="aboutUpdaterState">-</code></td>
+                  </tr>
+                  <tr>
+                    <th>{{ t("ABOUT_UPDATER_MESSAGE") }}</th>
+                    <td id="aboutUpdaterMessage">{{ t("ABOUT_UPDATER_NO_STATUS") }}</td>
+                  </tr>
+                  <tr>
+                    <th>{{ t("ABOUT_UPDATER_UPDATED") }}</th>
+                    <td id="aboutUpdaterUpdated">-</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="about-updater-log-title mt-3">{{ t("ABOUT_UPDATER_LOG") }}</div>
+            <pre class="about-updater-log mb-0" id="aboutUpdaterLog">{{ t("ABOUT_UPDATER_LOG_EMPTY") }}</pre>
+          </div>
+        {% endif %}
+
+        <div class="about-section">
+          <h6>{{ t("ABOUT_INSTALL_INFO") }}</h6>
+          <div class="table-responsive">
+            <table class="table table-sm table-theme about-table mb-0">
+              <tbody>
+                <tr>
+                  <th>{{ t("ABOUT_REPO") }}</th>
+                  <td><a href="{{ about_info.repo_url }}" target="_blank" rel="noopener noreferrer">{{ about_info.repo_url }}</a></td>
+                </tr>
+                <tr>
+                  <th>{{ t("ABOUT_INSTALL_DIR") }}</th>
+                  <td><code>{{ about_info.install_dir }}</code></td>
+                </tr>
+                <tr>
+                  <th>{{ t("ABOUT_DATABASE") }}</th>
+                  <td><code>{{ about_info.db_file }}</code></td>
+                </tr>
+                <tr>
+                  <th>{{ t("ABOUT_DATABASE_SIZE") }}</th>
+                  <td>{{ about_info.db_size }}</td>
+                </tr>
+                <tr>
+                  <th>{{ t("ABOUT_VERSION_FILE") }}</th>
+                  <td><code>{{ about_info.version_file }}</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="about-section">
+          <h6>{{ t("ABOUT_RUNTIME_INFO") }}</h6>
+          <div class="table-responsive">
+            <table class="table table-sm table-theme about-table mb-0">
+              <tbody>
+                <tr>
+                  <th>{{ t("ABOUT_WEB_USER") }}</th>
+                  <td><code>{{ about_info.process_identity }}</code></td>
+                </tr>
+                <tr>
+                  <th>{{ t("ABOUT_PYTHON") }}</th>
+                  <td>{{ about_info.python_version }}</td>
+                </tr>
+                <tr>
+                  <th>{{ t("ABOUT_SQLITE") }}</th>
+                  <td>{{ about_info.sqlite_version }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var panel = document.getElementById("aboutUpdatePanel");
+  if (!panel || !window.fetch) return;
+
+  var button = document.getElementById("aboutUpdateButton");
+  var statusBox = document.getElementById("aboutUpdateStatus");
+  var message = document.getElementById("aboutUpdateMessage");
+  var details = document.getElementById("aboutUpdateDetails");
+  var latest = document.getElementById("aboutUpdateLatest");
+  var checked = document.getElementById("aboutUpdateChecked");
+  var releaseLink = document.getElementById("aboutUpdateReleaseLink");
+  var updaterStartButton = document.getElementById("aboutUpdaterStartButton");
+
+  function text(name) {
+    return panel.getAttribute("data-" + name) || "";
+  }
+
+  function setState(state, value) {
+    statusBox.setAttribute("data-state", state);
+    message.textContent = value;
+  }
+
+  function showDetails(data) {
+    latest.textContent = data.latest_version || data.latest_tag || "-";
+    checked.textContent = data.checked_at_local || data.checked_at_utc || "-";
+    if (data.release_url) {
+      releaseLink.href = data.release_url;
+    }
+    details.style.display = "";
+  }
+
+  function render(data) {
+    if (!data || !data.ok) {
+      setState("error", text("error"));
+      details.style.display = "none";
+      if (updaterStartButton) {
+        updaterStartButton.disabled = true;
+      }
+      return;
+    }
+
+    showDetails(data);
+    if (updaterStartButton) {
+      updaterStartButton.disabled = data.update_available !== true;
+    }
+
+    if (data.update_available === true) {
+      setState("available", text("available"));
+    } else if (data.update_available === false) {
+      setState("current", text("current"));
+    } else {
+      setState("unknown", text("unknown"));
+    }
+  }
+
+  function checkUpdates(force) {
+    var url = panel.getAttribute("data-url");
+    if (force) {
+      url += (url.indexOf("?") === -1 ? "?" : "&") + "force=1";
+    }
+
+    button.disabled = true;
+    if (updaterStartButton) {
+      updaterStartButton.disabled = true;
+    }
+    setState("checking", text("checking"));
+
+    fetch(url, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Accept": "application/json" }
+    })
+      .then(function (response) {
+        return response.json().catch(function () {
+          return { ok: false };
+        });
+      })
+      .then(render)
+      .catch(function () {
+        setState("error", text("error"));
+        details.style.display = "none";
+      })
+      .finally(function () {
+        button.disabled = false;
+      });
+  }
+
+  button.addEventListener("click", function () {
+    checkUpdates(true);
+  });
+
+  checkUpdates(false);
+})();
+
+(function () {
+  var panel = document.getElementById("aboutUpdaterStatusPanel");
+  if (!panel || !window.fetch) return;
+
+  var button = document.getElementById("aboutUpdaterRefreshButton");
+  var startButton = document.getElementById("aboutUpdaterStartButton");
+  var stateCell = document.getElementById("aboutUpdaterState");
+  var messageCell = document.getElementById("aboutUpdaterMessage");
+  var updatedCell = document.getElementById("aboutUpdaterUpdated");
+  var logBox = document.getElementById("aboutUpdaterLog");
+
+  function panelText(name) {
+    return panel.getAttribute("data-" + name) || "";
+  }
+
+  function csrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute("content") : "";
+  }
+
+  function render(data) {
+    if (!data || !data.ok) {
+      stateCell.textContent = "error";
+      messageCell.textContent = panelText("error");
+      updatedCell.textContent = "-";
+      logBox.textContent = panelText("log-empty");
+      return;
+    }
+
+    var status = data.status || {};
+    stateCell.textContent = status.state || "-";
+    messageCell.textContent = status.message || panelText("no-status");
+    updatedCell.textContent = status.updated_at_local || status.updated_at_utc || "-";
+
+    var lines = Array.isArray(data.log_lines) ? data.log_lines : [];
+    logBox.textContent = lines.length ? lines.join("\n") : panelText("log-empty");
+  }
+
+  function refreshStatus() {
+    button.disabled = true;
+    fetch(panel.getAttribute("data-url"), {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Accept": "application/json" }
+    })
+      .then(function (response) {
+        return response.json().catch(function () {
+          return { ok: false };
+        });
+      })
+      .then(render)
+      .catch(function () {
+        render({ ok: false });
+      })
+      .finally(function () {
+        button.disabled = false;
+      });
+  }
+
+  function startUpdate() {
+    var startUrl = panel.getAttribute("data-start-url");
+    if (!startUrl) return;
+    if (!window.confirm(panelText("confirm"))) return;
+
+    startButton.disabled = true;
+    button.disabled = true;
+    stateCell.textContent = "starting";
+    messageCell.textContent = panelText("starting");
+
+    fetch(startUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Accept": "application/json",
+        "X-CSRF-Token": csrfToken(),
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    })
+      .then(function (response) {
+        return response.json().catch(function () {
+          return { ok: false };
+        });
+      })
+      .then(function (data) {
+        if (!data || !data.ok) {
+          stateCell.textContent = "error";
+          messageCell.textContent = (data && data.error) ? data.error : panelText("start-error");
+          startButton.disabled = false;
+          return;
+        }
+
+        stateCell.textContent = "queued";
+        messageCell.textContent = panelText("started");
+        window.setTimeout(refreshStatus, 1000);
+      })
+      .catch(function () {
+        stateCell.textContent = "error";
+        messageCell.textContent = panelText("start-error");
+        startButton.disabled = false;
+      })
+      .finally(function () {
+        button.disabled = false;
+      });
+  }
+
+  button.addEventListener("click", refreshStatus);
+  startButton.addEventListener("click", startUpdate);
+  refreshStatus();
+})();
+</script>
+{% endblock %}

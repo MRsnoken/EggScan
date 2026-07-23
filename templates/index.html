@@ -27,8 +27,9 @@
 
       {% if current_user.is_admin %}
         <a href="{{ url_for('manage_users') }}" class="btn btn-sm btn-outline-info mr-2">{{ t("MANAGE_USERS") }}</a>
-        <a href="{{ url_for('config_eggscan') }}" class="btn btn-sm btn-outline-light">{{ t("SETTINGS") }}</a>
+        <a href="{{ url_for('config_eggscan') }}" class="btn btn-sm btn-outline-light mr-2">{{ t("SETTINGS") }}</a>
       {% endif %}
+      <a href="{{ url_for('about') }}" class="btn btn-sm btn-outline-light">{{ t("ABOUT") }}</a>
     </div>
   </div>
 </nav>

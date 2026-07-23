@@ -1,0 +1,400 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import fcntl
+import grp
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.error
+import urllib.request
+import datetime
+
+
+APP_NAME = "EggScan"
+APP_GROUP = "eggscan"
+REPO = "MRsnoken/EggScan"
+API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+INSTALL_DIR = Path("/opt/eggscan")
+VERSION_FILE = INSTALL_DIR / "version.json"
+INSTALLER_NAME = "install_eggscan.sh"
+LOG_FILE = Path("/var/log/eggscan-update.log")
+STATUS_DIR = Path("/var/lib/eggscan")
+STATUS_FILE = STATUS_DIR / "update_status.json"
+LOCK_FILE = Path("/run/eggscan-update.lock")
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+TIMEOUT_SECONDS = 30
+
+REQUIRED_PATHS = (
+    "eggscan.py",
+    "version.json",
+    "requirements.txt",
+    "templates",
+    "static",
+    INSTALLER_NAME,
+)
+
+_LOG_HANDLE = None
+
+
+def get_app_group_gid():
+    try:
+        return grp.getgrnam(APP_GROUP).gr_gid
+    except Exception:
+        return None
+
+
+def set_shared_permissions(path: Path, mode: int) -> None:
+    try:
+        gid = get_app_group_gid()
+        if gid is not None and os.geteuid() == 0:
+            os.chown(path, 0, gid)
+        os.chmod(path, mode)
+    except Exception:
+        pass
+
+
+def utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+
+
+def utc_stamp() -> str:
+    return utc_now().isoformat().replace("+00:00", "Z")
+
+
+def log(message: str) -> None:
+    line = f"[{utc_stamp()}] {message}"
+    print(line, flush=True)
+    if _LOG_HANDLE is not None:
+        print(line, file=_LOG_HANDLE, flush=True)
+
+
+def write_status(state: str, message: str, **extra) -> None:
+    try:
+        STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        set_shared_permissions(STATUS_DIR, 0o750)
+        data = {
+            "state": state,
+            "message": message,
+            "updated_at_utc": utc_stamp(),
+        }
+        data.update(extra)
+        tmp_path = STATUS_FILE.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        set_shared_permissions(tmp_path, 0o640)
+        os.replace(tmp_path, STATUS_FILE)
+        set_shared_permissions(STATUS_FILE, 0o640)
+    except Exception as e:
+        log(f"WARNING: could not write status file: {e}")
+
+
+def normalize_version(value: str) -> str:
+    raw = str(value or "").strip()
+    if raw.startswith("refs/tags/"):
+        raw = raw[len("refs/tags/"):]
+    if len(raw) > 1 and raw[0].lower() == "v" and raw[1].isdigit():
+        raw = raw[1:]
+    return raw.strip()
+
+
+def parse_version(value: str):
+    normalized = normalize_version(value)
+    if not normalized:
+        return None
+
+    main = normalized.split("+", 1)[0]
+    release_part, _, suffix = main.partition("-")
+    numbers = []
+    for part in release_part.split("."):
+        digits = []
+        for ch in part:
+            if ch.isdigit():
+                digits.append(ch)
+            else:
+                break
+        if not digits:
+            return None
+        numbers.append(int("".join(digits)))
+
+    while len(numbers) < 4:
+        numbers.append(0)
+    numbers = numbers[:4]
+    final_rank = 0 if suffix else 1
+    return tuple(numbers + [final_rank, suffix])
+
+
+def compare_versions(current: str, latest: str):
+    current_key = parse_version(current)
+    latest_key = parse_version(latest)
+    if current_key is None or latest_key is None:
+        return None
+    if latest_key > current_key:
+        return 1
+    if latest_key < current_key:
+        return -1
+    return 0
+
+
+def read_current_version() -> str:
+    try:
+        data = json.loads(VERSION_FILE.read_text(encoding="utf-8"))
+        return normalize_version(str(data.get("version", "")))
+    except Exception:
+        return ""
+
+
+def fetch_json(url: str) -> dict:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"{APP_NAME}-updater",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def download_file(url: str, target: Path) -> None:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"{APP_NAME}-updater"},
+        method="GET",
+    )
+    downloaded = 0
+    with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as response:
+        with target.open("wb") as out:
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                downloaded += len(chunk)
+                if downloaded > MAX_DOWNLOAD_BYTES:
+                    raise RuntimeError("download exceeded maximum allowed size")
+                out.write(chunk)
+
+
+def is_within_directory(base: Path, target: Path) -> bool:
+    base_resolved = base.resolve()
+    target_resolved = target.resolve()
+    try:
+        target_resolved.relative_to(base_resolved)
+        return True
+    except ValueError:
+        return False
+
+
+def safe_extract_tar(archive: Path, destination: Path) -> None:
+    with tarfile.open(archive, "r:gz") as tar:
+        for member in tar.getmembers():
+            member_target = destination / member.name
+            if not is_within_directory(destination, member_target):
+                raise RuntimeError(f"unsafe archive path: {member.name}")
+            if member.issym() or member.islnk():
+                raise RuntimeError(f"archive links are not allowed: {member.name}")
+        tar.extractall(destination)
+
+
+def validate_source_tree(source_dir: Path, expected_version: str) -> None:
+    for rel_path in REQUIRED_PATHS:
+        path = source_dir / rel_path
+        if path.is_symlink():
+            raise RuntimeError(f"required path must not be a symlink: {rel_path}")
+        if rel_path in ("templates", "static"):
+            if not path.is_dir():
+                raise RuntimeError(f"required directory missing: {rel_path}")
+        elif not path.is_file():
+            raise RuntimeError(f"required file missing: {rel_path}")
+
+    version_data = json.loads((source_dir / "version.json").read_text(encoding="utf-8"))
+    release_version = normalize_version(str(version_data.get("version", "")))
+    if release_version != expected_version:
+        raise RuntimeError(
+            f"release tag/version mismatch: tag {expected_version}, version.json {release_version or 'missing'}"
+        )
+
+
+def find_source_tree(extract_dir: Path, expected_version: str) -> Path:
+    candidates = sorted(
+        {p.parent for p in extract_dir.rglob(INSTALLER_NAME) if p.is_file()},
+        key=lambda p: len(p.parts),
+    )
+    for candidate in candidates:
+        try:
+            validate_source_tree(candidate, expected_version)
+            return candidate
+        except Exception as e:
+            log(f"Skipping candidate {candidate}: {e}")
+    raise RuntimeError("no valid EggScan release source tree found")
+
+
+def run_installer(source_dir: Path) -> None:
+    installer = source_dir / INSTALLER_NAME
+    os.chmod(installer, 0o755)
+    env = {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PYTHONUNBUFFERED": "1",
+        "HOME": "/root",
+    }
+    cmd = [str(installer)]
+    log(f"Running installer from {source_dir}")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(source_dir),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        log(line.rstrip())
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"installer exited with status {rc}")
+
+
+def acquire_lock():
+    fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as e:
+        os.close(fd)
+        raise RuntimeError("another EggScan update is already running") from e
+    return fd
+
+
+def run_update(force: bool, dry_run: bool) -> int:
+    if os.geteuid() != 0:
+        raise RuntimeError("this updater must be run as root")
+
+    lock_fd = acquire_lock()
+    try:
+        current_version = read_current_version()
+        log(f"Current version: {current_version or 'unknown'}")
+        write_status("checking", "Checking latest release", current_version=current_version)
+
+        release = fetch_json(API_URL)
+        latest_tag = normalize_version(str(release.get("tag_name", "")))
+        tarball_url = str(release.get("tarball_url", "")).strip()
+        html_url = str(release.get("html_url", "")).strip()
+
+        if not latest_tag:
+            raise RuntimeError("latest release has no tag_name")
+        if parse_version(latest_tag) is None:
+            raise RuntimeError(f"latest release tag is not a supported version: {latest_tag}")
+        if not tarball_url:
+            raise RuntimeError("latest release has no tarball_url")
+
+        comparison = compare_versions(current_version, latest_tag) if current_version else None
+        if comparison is not None and comparison <= 0 and not force:
+            msg = f"Already up to date: {current_version}"
+            log(msg)
+            write_status(
+                "current",
+                msg,
+                current_version=current_version,
+                latest_version=latest_tag,
+                release_url=html_url,
+            )
+            return 0
+
+        log(f"Latest release: {latest_tag}")
+        write_status(
+            "downloading",
+            f"Downloading EggScan {latest_tag}",
+            current_version=current_version,
+            latest_version=latest_tag,
+            release_url=html_url,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="eggscan-update-", dir="/tmp") as tmp:
+            tmp_dir = Path(tmp)
+            archive_path = tmp_dir / "source.tar.gz"
+            extract_dir = tmp_dir / "source"
+            extract_dir.mkdir()
+
+            log(f"Downloading source archive to {archive_path}")
+            download_file(tarball_url, archive_path)
+
+            log("Extracting source archive")
+            safe_extract_tar(archive_path, extract_dir)
+
+            source_dir = find_source_tree(extract_dir, latest_tag)
+            log(f"Validated source tree: {source_dir}")
+
+            if dry_run:
+                msg = f"Dry-run OK for EggScan {latest_tag}; installer was not run"
+                log(msg)
+                write_status(
+                    "dry_run_ok",
+                    msg,
+                    current_version=current_version,
+                    latest_version=latest_tag,
+                    release_url=html_url,
+                )
+                return 0
+
+            write_status(
+                "installing",
+                f"Installing EggScan {latest_tag}",
+                current_version=current_version,
+                latest_version=latest_tag,
+                release_url=html_url,
+            )
+            run_installer(source_dir)
+
+        msg = f"Update complete: EggScan {latest_tag}"
+        log(msg)
+        write_status(
+            "success",
+            msg,
+            current_version=current_version,
+            latest_version=latest_tag,
+            release_url=html_url,
+        )
+        return 0
+    finally:
+        os.close(lock_fd)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Update EggScan from the latest GitHub release.")
+    parser.add_argument("--force", action="store_true", help="Run even if the installed version is already current.")
+    parser.add_argument("--dry-run", action="store_true", help="Download and validate the release without installing.")
+    args = parser.parse_args()
+
+    global _LOG_HANDLE
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _LOG_HANDLE = LOG_FILE.open("a", encoding="utf-8")
+        set_shared_permissions(LOG_FILE, 0o640)
+    except Exception:
+        _LOG_HANDLE = None
+
+    try:
+        return run_update(force=args.force, dry_run=args.dry_run)
+    except (urllib.error.URLError, urllib.error.HTTPError) as e:
+        msg = f"Update failed: network error: {e}"
+        log(msg)
+        write_status("error", msg)
+        return 1
+    except Exception as e:
+        msg = f"Update failed: {e}"
+        log(msg)
+        write_status("error", msg)
+        return 1
+    finally:
+        if _LOG_HANDLE is not None:
+            _LOG_HANDLE.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

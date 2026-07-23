@@ -8,12 +8,17 @@ import datetime
 from zoneinfo import ZoneInfo, available_timezones
 import subprocess
 import os
+import sys
 import json
 import secrets
 import argparse
 import tempfile
 import sqlite3
 import io
+import pwd
+import grp
+import urllib.error
+import urllib.request
 
 import apprise
 
@@ -47,6 +52,17 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VERSION_FILE = os.path.join(BASE_DIR, "version.json")
 SECRET_FILE = os.path.join(BASE_DIR, "secret_key.txt")
 DB_FILE = os.path.join(BASE_DIR, "eggscan.db")
+GITHUB_REPO_URL = "https://github.com/MRsnoken/EggScan"
+GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/MRsnoken/EggScan/releases/latest"
+UPDATE_CHECK_TIMEOUT_SECONDS = 6
+UPDATE_CHECK_CACHE_SECONDS = 600
+UPDATE_STATUS_FILE = "/var/lib/eggscan/update_status.json"
+UPDATE_LOG_FILE = "/var/log/eggscan-update.log"
+UPDATE_LOG_TAIL_LINES = 80
+UPDATE_LOG_TAIL_BYTES = 200 * 1024
+UPDATER_SERVICE_NAME = "eggscan-update.service"
+UPDATER_START_TIMEOUT_SECONDS = 10
+_UPDATE_CHECK_CACHE = {"checked_at": None, "payload": None}
 
 
 def load_version():
@@ -293,10 +309,51 @@ TRANSLATIONS = {
         "CHANGE_PASSWORD": "Byt lösenord",
         "MANAGE_USERS": "Hantera användare",
         "SETTINGS": "Inställningar",
+        "ABOUT": "Om",
         "CONFIRM_DELETE": "Är du säker?",
         "YES": "Ja",
         "NO": "Nej",
         "VERSION_LABEL": "Version",
+        "ABOUT_TITLE": "Om EggScan",
+        "ABOUT_CURRENT_VERSION": "Aktuell version",
+        "ABOUT_INSTALL_INFO": "Installation",
+        "ABOUT_RUNTIME_INFO": "Runtime",
+        "ABOUT_REPO": "GitHub-repo",
+        "ABOUT_INSTALL_DIR": "Installationsmapp",
+        "ABOUT_DATABASE": "Databas",
+        "ABOUT_DATABASE_SIZE": "Databasstorlek",
+        "ABOUT_VERSION_FILE": "Versionsfil",
+        "ABOUT_WEB_USER": "Webbprocess",
+        "ABOUT_PYTHON": "Python",
+        "ABOUT_SQLITE": "SQLite",
+        "ABOUT_NOT_AVAILABLE": "Ej tillgängligt",
+        "ABOUT_SERVICE_NOTE": "Uppdatering och installation hanteras fortfarande utanför webben.",
+        "ABOUT_UPDATE_TITLE": "Uppdateringar",
+        "ABOUT_UPDATE_HINT": "Kontrollerar senaste publicerade GitHub-release.",
+        "ABOUT_CHECK_UPDATES": "Kolla uppdateringar",
+        "ABOUT_UPDATE_CHECKING": "Kontrollerar...",
+        "ABOUT_UPDATE_CURRENT": "Du kör senaste versionen.",
+        "ABOUT_UPDATE_AVAILABLE": "Ny version finns.",
+        "ABOUT_UPDATE_UNKNOWN": "Versionsstatus kunde inte avgöras.",
+        "ABOUT_UPDATE_ERROR": "Kunde inte kontrollera uppdateringar just nu.",
+        "ABOUT_UPDATE_LATEST_VERSION": "Senaste version",
+        "ABOUT_UPDATE_RELEASE_LINK": "Öppna release",
+        "ABOUT_UPDATE_LAST_CHECKED": "Senast kontrollerad",
+        "ABOUT_UPDATER_STATUS_TITLE": "Updater-status",
+        "ABOUT_UPDATER_STATUS_HINT": "Visar senaste status från den manuella updateraren.",
+        "ABOUT_UPDATER_REFRESH": "Uppdatera status",
+        "ABOUT_UPDATER_START": "Starta uppdatering",
+        "ABOUT_UPDATER_STARTING": "Startar updateraren...",
+        "ABOUT_UPDATER_STARTED": "Updateraren startades. Följ statusen nedan.",
+        "ABOUT_UPDATER_START_ERROR": "Kunde inte starta updateraren.",
+        "ABOUT_UPDATER_CONFIRM": "Starta uppdatering från senaste GitHub-release?",
+        "ABOUT_UPDATER_STATE": "Status",
+        "ABOUT_UPDATER_MESSAGE": "Meddelande",
+        "ABOUT_UPDATER_UPDATED": "Uppdaterad",
+        "ABOUT_UPDATER_LOG": "Senaste logg",
+        "ABOUT_UPDATER_NO_STATUS": "Ingen updater-status ännu.",
+        "ABOUT_UPDATER_LOG_EMPTY": "Ingen updater-logg ännu.",
+        "ABOUT_UPDATER_ERROR": "Kunde inte läsa updater-status.",
 
         "INDEX_TITLE": "EggScan",
         "LOGGED_IN_AS": "Inloggad som:",
@@ -609,10 +666,51 @@ TRANSLATIONS = {
         "CHANGE_PASSWORD": "Change password",
         "MANAGE_USERS": "Manage users",
         "SETTINGS": "Settings",
+        "ABOUT": "About",
         "CONFIRM_DELETE": "Are you sure?",
         "YES": "Yes",
         "NO": "No",
         "VERSION_LABEL": "Version",
+        "ABOUT_TITLE": "About EggScan",
+        "ABOUT_CURRENT_VERSION": "Current version",
+        "ABOUT_INSTALL_INFO": "Installation",
+        "ABOUT_RUNTIME_INFO": "Runtime",
+        "ABOUT_REPO": "GitHub repository",
+        "ABOUT_INSTALL_DIR": "Install directory",
+        "ABOUT_DATABASE": "Database",
+        "ABOUT_DATABASE_SIZE": "Database size",
+        "ABOUT_VERSION_FILE": "Version file",
+        "ABOUT_WEB_USER": "Web process",
+        "ABOUT_PYTHON": "Python",
+        "ABOUT_SQLITE": "SQLite",
+        "ABOUT_NOT_AVAILABLE": "Not available",
+        "ABOUT_SERVICE_NOTE": "Updates and installation are still handled outside the web UI.",
+        "ABOUT_UPDATE_TITLE": "Updates",
+        "ABOUT_UPDATE_HINT": "Checks the latest published GitHub release.",
+        "ABOUT_CHECK_UPDATES": "Check updates",
+        "ABOUT_UPDATE_CHECKING": "Checking...",
+        "ABOUT_UPDATE_CURRENT": "You are running the latest version.",
+        "ABOUT_UPDATE_AVAILABLE": "New version available.",
+        "ABOUT_UPDATE_UNKNOWN": "Version status could not be determined.",
+        "ABOUT_UPDATE_ERROR": "Could not check updates right now.",
+        "ABOUT_UPDATE_LATEST_VERSION": "Latest version",
+        "ABOUT_UPDATE_RELEASE_LINK": "Open release",
+        "ABOUT_UPDATE_LAST_CHECKED": "Last checked",
+        "ABOUT_UPDATER_STATUS_TITLE": "Updater status",
+        "ABOUT_UPDATER_STATUS_HINT": "Shows the latest status from the manual updater.",
+        "ABOUT_UPDATER_REFRESH": "Refresh status",
+        "ABOUT_UPDATER_START": "Start update",
+        "ABOUT_UPDATER_STARTING": "Starting updater...",
+        "ABOUT_UPDATER_STARTED": "Updater started. Follow the status below.",
+        "ABOUT_UPDATER_START_ERROR": "Could not start the updater.",
+        "ABOUT_UPDATER_CONFIRM": "Start update from the latest GitHub release?",
+        "ABOUT_UPDATER_STATE": "Status",
+        "ABOUT_UPDATER_MESSAGE": "Message",
+        "ABOUT_UPDATER_UPDATED": "Updated",
+        "ABOUT_UPDATER_LOG": "Latest log",
+        "ABOUT_UPDATER_NO_STATUS": "No updater status yet.",
+        "ABOUT_UPDATER_LOG_EMPTY": "No updater log yet.",
+        "ABOUT_UPDATER_ERROR": "Could not read updater status.",
 
         "INDEX_TITLE": "EggScan",
         "LOGGED_IN_AS": "Logged in as:",
@@ -935,6 +1033,18 @@ def set_setting(key, value):
         s.value = value
     db.session.commit()
 
+def _write_setting_in_current_transaction(key: str, value: str) -> None:
+    result = db.session.execute(
+        text("UPDATE settings SET value=:v WHERE key=:k;"),
+        {"k": str(key), "v": str(value)}
+    )
+    if result.rowcount == 0:
+        db.session.execute(
+            text("INSERT INTO settings (key, value) VALUES (:k, :v);"),
+            {"k": str(key), "v": str(value)}
+        )
+
+
 def set_settings_bulk(pairs: dict[str, str]) -> None:
     if not pairs:
         return
@@ -943,16 +1053,10 @@ def set_settings_bulk(pairs: dict[str, str]) -> None:
         try:
             db.session.execute(text("BEGIN IMMEDIATE;"))
             for k, v in pairs.items():
-                db.session.execute(
-                    text("""
-                        INSERT INTO settings (key, value)
-                        VALUES (:k, :v)
-                        ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-                    """),
-                    {"k": str(k), "v": str(v)}
-                )
+                _write_setting_in_current_transaction(str(k), str(v))
             db.session.commit()
-        except Exception:
+        except Exception as e:
+            print("Settings bulk update error:", e)
             try:
                 db.session.rollback()
             except Exception:
@@ -1357,6 +1461,258 @@ def tf(key, **kwargs):
         return text_value
 
 
+def format_file_size(num_bytes: int) -> str:
+    try:
+        size = float(num_bytes)
+    except Exception:
+        return "-"
+
+    units = ("B", "KB", "MB", "GB", "TB")
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+    return f"{int(num_bytes)} B"
+
+
+def get_process_identity_label() -> str:
+    uid = os.geteuid()
+    gid = os.getegid()
+    try:
+        user_name = pwd.getpwuid(uid).pw_name
+    except Exception:
+        user_name = str(uid)
+
+    try:
+        group_name = grp.getgrgid(gid).gr_name
+    except Exception:
+        group_name = str(gid)
+
+    return f"{user_name}:{group_name}"
+
+
+def get_about_info() -> dict:
+    db_exists = os.path.exists(DB_FILE)
+    db_size = os.path.getsize(DB_FILE) if db_exists else None
+
+    return {
+        "version": APP_VERSION,
+        "repo_url": GITHUB_REPO_URL,
+        "install_dir": BASE_DIR,
+        "db_file": DB_FILE,
+        "db_size": format_file_size(db_size) if db_size is not None else "-",
+        "version_file": VERSION_FILE,
+        "process_identity": get_process_identity_label(),
+        "python_version": sys.version.split()[0],
+        "sqlite_version": sqlite3.sqlite_version,
+    }
+
+
+def normalize_release_version(value: str) -> str:
+    raw = str(value or "").strip()
+    if raw.startswith("refs/tags/"):
+        raw = raw[len("refs/tags/"):]
+    if len(raw) > 1 and raw[0].lower() == "v" and raw[1].isdigit():
+        raw = raw[1:]
+    return raw.strip()
+
+
+def parse_release_version(value: str):
+    normalized = normalize_release_version(value)
+    if not normalized:
+        return None
+
+    main = normalized.split("+", 1)[0]
+    release_part, _, suffix = main.partition("-")
+    numbers = []
+    for part in release_part.split("."):
+        digits = []
+        for ch in part:
+            if ch.isdigit():
+                digits.append(ch)
+            else:
+                break
+        if not digits:
+            return None
+        numbers.append(int("".join(digits)))
+
+    while len(numbers) < 4:
+        numbers.append(0)
+    numbers = numbers[:4]
+
+    final_rank = 0 if suffix else 1
+    return tuple(numbers + [final_rank, suffix])
+
+
+def compare_release_versions(current_version: str, latest_version: str) -> Optional[int]:
+    current_key = parse_release_version(current_version)
+    latest_key = parse_release_version(latest_version)
+    if current_key is None or latest_key is None:
+        return None
+    if latest_key > current_key:
+        return 1
+    if latest_key < current_key:
+        return -1
+    return 0
+
+
+def fetch_latest_release_payload(force: bool = False) -> dict:
+    now = utc_now()
+    checked_at = _iso_utc(now)
+    try:
+        checked_at_local = format_local(now, get_display_timezone())
+    except Exception:
+        checked_at_local = checked_at
+    cached_at = _UPDATE_CHECK_CACHE.get("checked_at")
+    cached_payload = _UPDATE_CHECK_CACHE.get("payload")
+    if (
+        not force
+        and isinstance(cached_at, datetime.datetime)
+        and isinstance(cached_payload, dict)
+        and (now - cached_at).total_seconds() < UPDATE_CHECK_CACHE_SECONDS
+    ):
+        payload = dict(cached_payload)
+        payload["cached"] = True
+        return payload
+
+    req = urllib.request.Request(
+        GITHUB_LATEST_RELEASE_API,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"EggScan/{APP_VERSION}",
+        },
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=UPDATE_CHECK_TIMEOUT_SECONDS) as response:
+            release_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"GitHub returned HTTP {e.code}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(str(e.reason)) from e
+    except Exception as e:
+        raise RuntimeError(str(e)) from e
+
+    latest_tag = str(release_data.get("tag_name", "")).strip()
+    release_url = str(release_data.get("html_url", GITHUB_REPO_URL)).strip() or GITHUB_REPO_URL
+    latest_version = normalize_release_version(latest_tag)
+    current_version = normalize_release_version(APP_VERSION)
+    comparison = compare_release_versions(current_version, latest_version)
+
+    payload = {
+        "ok": True,
+        "current_version": current_version,
+        "latest_version": latest_version or latest_tag,
+        "latest_tag": latest_tag,
+        "release_url": release_url,
+        "checked_at_utc": checked_at,
+        "checked_at_local": checked_at_local,
+        "cached": False,
+        "update_available": (comparison > 0) if comparison is not None else None,
+    }
+
+    _UPDATE_CHECK_CACHE["checked_at"] = now
+    _UPDATE_CHECK_CACHE["payload"] = dict(payload)
+    return payload
+
+
+def format_updater_timestamp(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "-"
+
+    try:
+        iso_value = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+        dt_value = datetime.datetime.fromisoformat(iso_value)
+        if dt_value.tzinfo is not None:
+            dt_value = dt_value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        return format_local(dt_value, get_display_timezone())
+    except Exception:
+        return raw
+
+
+def read_json_file_if_exists(path: str) -> Optional[dict]:
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data if isinstance(data, dict) else None
+
+
+def tail_text_file(path: str, max_lines: int, max_bytes: int) -> list[str]:
+    if not os.path.exists(path):
+        return []
+
+    file_size = os.path.getsize(path)
+    with open(path, "rb") as f:
+        if file_size > max_bytes:
+            f.seek(file_size - max_bytes)
+            f.readline()
+        raw = f.read(max_bytes)
+
+    text_value = raw.decode("utf-8", errors="replace")
+    return text_value.splitlines()[-max_lines:]
+
+
+def get_updater_status_payload() -> dict:
+    status = read_json_file_if_exists(UPDATE_STATUS_FILE)
+    if status:
+        updated_at_utc = str(status.get("updated_at_utc", "")).strip()
+        status["updated_at_local"] = format_updater_timestamp(updated_at_utc)
+
+    return {
+        "ok": True,
+        "status": status,
+        "log_lines": tail_text_file(UPDATE_LOG_FILE, UPDATE_LOG_TAIL_LINES, UPDATE_LOG_TAIL_BYTES),
+    }
+
+
+def first_executable_path(candidates: tuple[str, ...]) -> str:
+    for path in candidates:
+        if os.path.exists(path) and os.access(path, os.X_OK):
+            return path
+    return candidates[0]
+
+
+def start_updater_service() -> dict:
+    sudo_path = first_executable_path(("/usr/bin/sudo", "/bin/sudo"))
+    systemctl_path = first_executable_path(("/usr/bin/systemctl", "/bin/systemctl"))
+    command = [
+        sudo_path,
+        "-n",
+        systemctl_path,
+        "--no-block",
+        "start",
+        UPDATER_SERVICE_NAME,
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=UPDATER_START_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("systemd did not accept the updater start request in time") from e
+
+    if result.returncode != 0:
+        output = (result.stderr or result.stdout or "").strip()
+        if not output:
+            output = f"sudo/systemctl exited with status {result.returncode}"
+        raise RuntimeError(output)
+
+    return {
+        "service": UPDATER_SERVICE_NAME,
+        "queued": True,
+    }
+
+
 # ---------------------------
 #   HELPERS
 # ---------------------------
@@ -1516,6 +1872,18 @@ SCAN_LOCK_UNTIL_KEY = "scan_lock_until_utc"
 SCAN_REQUEST_KEY = "scan_requested"
 SCAN_REQUEST_ID_KEY = "scan_request_id"
 SCAN_REQUEST_AT_KEY = "scan_request_at_utc"
+NMAP_PING_ARGS = os.environ.get("EGGSCAN_NMAP_PING_ARGS", "-sn --privileged").strip() or "-sn --privileged"
+NMAP_PING_FALLBACK_ARGS = "-sn"
+
+
+def nmap_ping_scan(nm, hosts: str):
+    try:
+        return nm.scan(hosts=hosts, arguments=NMAP_PING_ARGS)
+    except Exception as e:
+        if NMAP_PING_ARGS != NMAP_PING_FALLBACK_ARGS:
+            print(f"Nmap ping scan error for {hosts} with '{NMAP_PING_ARGS}': {e}; retrying with '{NMAP_PING_FALLBACK_ARGS}'")
+            return nm.scan(hosts=hosts, arguments=NMAP_PING_FALLBACK_ARGS)
+        raise
 
 
 def _iso_utc(dt: datetime.datetime) -> str:
@@ -1585,30 +1953,14 @@ def acquire_scan_lock(ttl_seconds: int = 3600) -> Optional[str]:
                 db.session.rollback()
                 return None
 
-            # UPSERT token
-            db.session.execute(
-                text("""
-                    INSERT INTO settings (key, value)
-                    VALUES (:k, :v)
-                    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-                """),
-                {"k": SCAN_LOCK_KEY, "v": token}
-            )
-
-            # UPSERT until
-            db.session.execute(
-                text("""
-                    INSERT INTO settings (key, value)
-                    VALUES (:k, :v)
-                    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-                """),
-                {"k": SCAN_LOCK_UNTIL_KEY, "v": until_iso}
-            )
+            _write_setting_in_current_transaction(SCAN_LOCK_KEY, token)
+            _write_setting_in_current_transaction(SCAN_LOCK_UNTIL_KEY, until_iso)
 
             db.session.commit()
             return token
 
-        except Exception:
+        except Exception as e:
+            print("Scan lock acquire error:", e)
             try:
                 db.session.rollback()
             except Exception:
@@ -1633,26 +1985,13 @@ def release_scan_lock(token: str) -> None:
             cur_token = (row[0] if row and row[0] else "").strip()
 
             if cur_token == token:
-                db.session.execute(
-                    text("""
-                        INSERT INTO settings (key, value)
-                        VALUES (:k, :v)
-                        ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-                    """),
-                    {"k": SCAN_LOCK_KEY, "v": ""}
-                )
-                db.session.execute(
-                    text("""
-                        INSERT INTO settings (key, value)
-                        VALUES (:k, :v)
-                        ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-                    """),
-                    {"k": SCAN_LOCK_UNTIL_KEY, "v": ""}
-                )
+                _write_setting_in_current_transaction(SCAN_LOCK_KEY, "")
+                _write_setting_in_current_transaction(SCAN_LOCK_UNTIL_KEY, "")
 
             db.session.commit()
 
-        except Exception:
+        except Exception as e:
+            print("Scan lock release error:", e)
             try:
                 db.session.rollback()
             except Exception:
@@ -2351,7 +2690,7 @@ def verify_missing_known_devices(nm, current_scan_id: str, subnets, scan_ips_per
 
         for ip_addr in get_device_ipv4_candidates(dev):
             try:
-                verify_output = nm.scan(hosts=ip_addr, arguments="-sn")
+                verify_output = nmap_ping_scan(nm, ip_addr)
                 verify_map = verify_output.get("scan", {}) or {}
             except Exception as e:
                 print(f"Offline verify scan error for {ip_addr}: {e}")
@@ -2438,7 +2777,7 @@ def nmap_scan_and_save():
                 continue
 
             try:
-                scan_output = nm.scan(hosts=cidr, arguments="-sn")
+                scan_output = nmap_ping_scan(nm, cidr)
                 scan_map = scan_output.get("scan", {}) or {}
             except Exception as e:
                 print(f"Scan error for {cidr}: {e}")
@@ -2813,6 +3152,79 @@ def change_password():
     lang = get_language()
     theme = get_theme()
     return render_template("change_password.html", t=t, lang=lang, version=APP_VERSION, theme=theme)
+
+
+@app.route("/about", methods=["GET"])
+@login_required
+def about():
+    lang = get_language()
+    theme = get_theme()
+    return render_template(
+        "about.html",
+        about_info=get_about_info(),
+        t=t,
+        lang=lang,
+        version=APP_VERSION,
+        theme=theme,
+    )
+
+
+@app.route("/api/update_check", methods=["GET"])
+@login_required
+def api_update_check():
+    if not current_user.is_admin:
+        abort(403)
+
+    force = str(request.args.get("force", "")).strip().lower() in ("1", "true", "yes")
+    try:
+        return jsonify(fetch_latest_release_payload(force=force))
+    except Exception as e:
+        error_now = utc_now()
+        error_checked_at = _iso_utc(error_now)
+        try:
+            error_checked_at_local = format_local(error_now, get_display_timezone())
+        except Exception:
+            error_checked_at_local = error_checked_at
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "current_version": normalize_release_version(APP_VERSION),
+            "repo_url": GITHUB_REPO_URL,
+            "checked_at_utc": error_checked_at,
+            "checked_at_local": error_checked_at_local,
+        }), 502
+
+
+@app.route("/api/updater_status", methods=["GET"])
+@login_required
+def api_updater_status():
+    if not current_user.is_admin:
+        abort(403)
+
+    try:
+        return jsonify(get_updater_status_payload())
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 500
+
+
+@app.route("/api/updater_start", methods=["POST"])
+@login_required
+def api_updater_start():
+    if not current_user.is_admin:
+        abort(403)
+
+    try:
+        payload = start_updater_service()
+        payload["ok"] = True
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 500
 
 
 @app.route("/")
