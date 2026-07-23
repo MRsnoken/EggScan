@@ -3,23 +3,36 @@
 
 # Python cache
 __pycache__/
-*.pyc
-*.pyo
+**/__pycache__/
+*.py[cod]
 
 # Virtual environments
 venv/
 env/
 
-# Systemd (ska inte ligga i git)
-eggscan.service
-
-# Local databases (användaren genererar sin egen)
+# Local databases and SQLite runtime files
 *.db
+*.db-*
+eggscan.db
+eggscan.db-*
+eggscan.db-wal
+eggscan.db-shm
 
 # Installer-generated secrets
 secret_key.txt
 
-# Build artifacts (om du skapar framtida paket)
+# Installer backups
+_backup_*/
+
+# Local Codex/workspace metadata
+.codex/
+.agents/
+
+# Build artifacts
 build/
 dist/
 *.egg-info/
+
+# Local env/log files
+.env
+*.log
