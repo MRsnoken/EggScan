@@ -2,7 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+
+
+## [1.8.1] - 2026-07-23
+
+### Changed
+  -  Updater status now refreshes automatically after starting an update and shows a reload hint when the update is complete.
 
 ## [1.8.0] - 2026-07-23
 
@@ -19,7 +24,7 @@ All notable changes to this project will be documented in this file.
   -  Scan requests now work with older databases even if the `settings.key` unique index is missing.
   -  Nmap host discovery now requests privileged scan mode when running under the hardened scan worker service.
 
-## [1.7.0] 
+## [1.7.0] – note set yet 
 
 ## Added
   -  Quick tag filters on the index page (`All` + admin-defined quick tags).

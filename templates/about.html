@@ -82,6 +82,8 @@
             data-log-empty="{{ t('ABOUT_UPDATER_LOG_EMPTY') }}"
             data-starting="{{ t('ABOUT_UPDATER_STARTING') }}"
             data-started="{{ t('ABOUT_UPDATER_STARTED') }}"
+            data-running="{{ t('ABOUT_UPDATER_RUNNING') }}"
+            data-reload-hint="{{ t('ABOUT_UPDATER_RELOAD_HINT') }}"
             data-start-error="{{ t('ABOUT_UPDATER_START_ERROR') }}"
             data-confirm="{{ t('ABOUT_UPDATER_CONFIRM') }}"
           >
@@ -93,6 +95,9 @@
               <div class="about-updater-actions">
                 <button type="button" class="btn btn-info btn-sm" id="aboutUpdaterStartButton" disabled>
                   {{ t("ABOUT_UPDATER_START") }}
+                </button>
+                <button type="button" class="btn btn-outline-info btn-sm" id="aboutUpdaterReloadButton" style="display:none;">
+                  {{ t("ABOUT_UPDATER_REFRESH_PAGE") }}
                 </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="aboutUpdaterRefreshButton">
                   {{ t("ABOUT_UPDATER_REFRESH") }}
@@ -119,6 +124,7 @@
               </table>
             </div>
 
+            <div class="about-updater-hint mt-3" id="aboutUpdaterHint" style="display:none;"></div>
             <div class="about-updater-log-title mt-3">{{ t("ABOUT_UPDATER_LOG") }}</div>
             <pre class="about-updater-log mb-0" id="aboutUpdaterLog">{{ t("ABOUT_UPDATER_LOG_EMPTY") }}</pre>
           </div>
@@ -284,10 +290,21 @@
 
   var button = document.getElementById("aboutUpdaterRefreshButton");
   var startButton = document.getElementById("aboutUpdaterStartButton");
+  var reloadButton = document.getElementById("aboutUpdaterReloadButton");
   var stateCell = document.getElementById("aboutUpdaterState");
   var messageCell = document.getElementById("aboutUpdaterMessage");
   var updatedCell = document.getElementById("aboutUpdaterUpdated");
   var logBox = document.getElementById("aboutUpdaterLog");
+  var hintBox = document.getElementById("aboutUpdaterHint");
+  var pollTimer = null;
+  var pollingActive = false;
+  var activeStates = {
+    checking: true,
+    downloading: true,
+    installing: true,
+    queued: true,
+    starting: true
+  };
 
   function panelText(name) {
     return panel.getAttribute("data-" + name) || "";
@@ -298,26 +315,81 @@
     return meta ? meta.getAttribute("content") : "";
   }
 
+  function setHint(value) {
+    if (!hintBox) return;
+    hintBox.textContent = value || "";
+    hintBox.style.display = value ? "" : "none";
+  }
+
+  function scheduleStatusRefresh(delay) {
+    if (pollTimer) {
+      window.clearTimeout(pollTimer);
+    }
+    pollTimer = window.setTimeout(function () {
+      refreshStatus({ automatic: true });
+    }, delay || 3000);
+  }
+
+  function stopStatusRefresh() {
+    pollingActive = false;
+    if (pollTimer) {
+      window.clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+  }
+
   function render(data) {
     if (!data || !data.ok) {
       stateCell.textContent = "error";
       messageCell.textContent = panelText("error");
       updatedCell.textContent = "-";
       logBox.textContent = panelText("log-empty");
+      if (reloadButton) {
+        reloadButton.style.display = "none";
+      }
       return;
     }
 
     var status = data.status || {};
-    stateCell.textContent = status.state || "-";
+    var state = status.state || "";
+    stateCell.textContent = state || "-";
     messageCell.textContent = status.message || panelText("no-status");
     updatedCell.textContent = status.updated_at_local || status.updated_at_utc || "-";
 
     var lines = Array.isArray(data.log_lines) ? data.log_lines : [];
     logBox.textContent = lines.length ? lines.join("\n") : panelText("log-empty");
+
+    if (state === "success") {
+      stopStatusRefresh();
+      setHint(panelText("reload-hint"));
+      if (reloadButton) {
+        reloadButton.style.display = "";
+      }
+      return;
+    }
+
+    if (activeStates[state]) {
+      pollingActive = true;
+      setHint(panelText("running"));
+      if (reloadButton) {
+        reloadButton.style.display = "none";
+      }
+      scheduleStatusRefresh(3000);
+      return;
+    }
+
+    stopStatusRefresh();
+    setHint("");
+    if (reloadButton) {
+      reloadButton.style.display = "none";
+    }
   }
 
-  function refreshStatus() {
-    button.disabled = true;
+  function refreshStatus(options) {
+    options = options || {};
+    if (!options.automatic) {
+      button.disabled = true;
+    }
     fetch(panel.getAttribute("data-url"), {
       method: "GET",
       credentials: "same-origin",
@@ -331,10 +403,19 @@
       })
       .then(render)
       .catch(function () {
-        render({ ok: false });
+        if (pollingActive) {
+          stateCell.textContent = "installing";
+          messageCell.textContent = panelText("running");
+          setHint(panelText("running"));
+          scheduleStatusRefresh(3000);
+        } else {
+          render({ ok: false });
+        }
       })
       .finally(function () {
-        button.disabled = false;
+        if (!options.automatic) {
+          button.disabled = false;
+        }
       });
   }
 
@@ -345,6 +426,10 @@
 
     startButton.disabled = true;
     button.disabled = true;
+    if (reloadButton) {
+      reloadButton.style.display = "none";
+    }
+    setHint(panelText("running"));
     stateCell.textContent = "starting";
     messageCell.textContent = panelText("starting");
 
@@ -368,17 +453,20 @@
           stateCell.textContent = "error";
           messageCell.textContent = (data && data.error) ? data.error : panelText("start-error");
           startButton.disabled = false;
+          setHint("");
           return;
         }
 
+        pollingActive = true;
         stateCell.textContent = "queued";
         messageCell.textContent = panelText("started");
-        window.setTimeout(refreshStatus, 1000);
+        scheduleStatusRefresh(1000);
       })
       .catch(function () {
         stateCell.textContent = "error";
         messageCell.textContent = panelText("start-error");
         startButton.disabled = false;
+        setHint("");
       })
       .finally(function () {
         button.disabled = false;
@@ -387,6 +475,11 @@
 
   button.addEventListener("click", refreshStatus);
   startButton.addEventListener("click", startUpdate);
+  if (reloadButton) {
+    reloadButton.addEventListener("click", function () {
+      window.location.reload();
+    });
+  }
   refreshStatus();
 })();
 </script>
