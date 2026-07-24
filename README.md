@@ -31,7 +31,7 @@ devices on your LAN, maintaining a clear and inspectable state after each scan.
 
 EggScan is built with the following principles in mind:
 
-- Fully local operation – all data stays on your server with no cloud backend or required external services.
+- Fully local operation – all data is stored locally, with no cloud backend or required external services
 - Predictable behavior over real-time complexity
 - Clear and inspectable state after each scan
 - Simple deployment and maintenance
