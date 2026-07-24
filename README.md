@@ -97,6 +97,10 @@ EggScan is **not** intended for:
 
 <br><br>
 
+<strong>About </strong>
+<img width="1414" height="583" alt="About" src="https://github.com/user-attachments/assets/2d98d7ce-0e0a-4c6d-a88f-db82d4fd5b7a" />
+
+<br><br>
 <strong> Darkmode</strong>
 
 <img width="1874" height="1047" alt="Darkmode" src="https://github.com/user-attachments/assets/6a4e5664-c876-4c31-8464-dcddfe7f9193" />
@@ -107,7 +111,9 @@ EggScan is **not** intended for:
 <br><br>
 <strong> Cosmos </strong>
 <img width="1884" height="1066" alt="Cosmosmode" src="https://github.com/user-attachments/assets/d17eb776-612a-4714-9b41-b006d3bbac8f" />
-
+<br><br>
+<strong> Uplink<img width="1414" height="660" alt="uplink" src="https://github.com/user-attachments/assets/138dfddf-90c5-4d39-b77c-6291e6fc5a65" />
+ </strong>
 
 </details>
 
