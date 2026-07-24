@@ -154,13 +154,13 @@ EggScan is **not** intended for:
 
 <details>
 <summary><strong> Installation (Debian / Ubuntu) </strong> ⬇</summary>
-
+<br>
 Supported Debian-based systems:
 
-- Ubuntu
-- Raspberry Pi OS
 - Debian
+- Ubuntu
 - Linux Mint
+- Raspberry Pi OS
 - Other Debian derivatives
 
 Run:
