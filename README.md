@@ -209,7 +209,7 @@ pip install -r requirements.txt
 ```
 </details>
 <details>
-<summary><strong> Installation on other Linux systems </strong> ⬇</summary>
+<summary><strong> Installation on other Linux distributions) </strong> ⬇</summary>
 No automatic installer is provided.
 
 
