@@ -202,7 +202,9 @@ Listed in requirements.txt:
 
 </details>
 <details>
-<summary><strong> Manual installation </strong> ⬇</summary>
+<summary><strong> Development / Python environment </strong> ⬇</summary>
+
+This only installs the Python dependencies for development/testing. It does not create services, users, permissions or the updater.
 
   ```bash
 python3 -m venv venv
