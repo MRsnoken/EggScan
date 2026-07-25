@@ -229,9 +229,12 @@ You must manually install:
 You must also manually create:
 
 - a virtual environment
-- two systemd service files (web + scan worker)
-- optional updater helper/service if you want the built-in update flow
-- a directory structure under /opt/eggscan
+- an `eggscan` system user and group
+- a directory structure under `/opt/eggscan`
+- file permissions that allow the `eggscan` user to write the local database and generated secrets
+- two systemd service files (web + scan worker), normally running as the `eggscan` user/group
+- scan-worker network capabilities equivalent to `CAP_NET_RAW` / `CAP_NET_ADMIN` if you want privileged nmap discovery while running as a non-root user
+- optional distro-specific updater helper/service if you intentionally adapt the built-in update flow
 
 For advanced users only.
 </details>
@@ -308,8 +311,6 @@ Planned or considered improvements:
 - Additional notification workflows and templates
 - Improved device history and presence tracking
 - UI refinements and accessibility improvements
-- Investigate broader install support beyond Debian-based systems.
-- Consider Docker/GHCR packaging as an optional deployment method.
 
 This roadmap is **informational only** and may change over time.
 
