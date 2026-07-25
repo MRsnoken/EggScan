@@ -308,6 +308,8 @@ Planned or considered improvements:
 - Additional notification workflows and templates
 - Improved device history and presence tracking
 - UI refinements and accessibility improvements
+- Investigate broader install support beyond Debian-based systems.
+- Consider Docker/GHCR packaging as an optional deployment method.
 
 This roadmap is **informational only** and may change over time.
 
