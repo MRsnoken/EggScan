@@ -163,6 +163,8 @@ Supported Debian-based systems:
 - Raspberry Pi OS
 - Other Debian derivatives
 
+The installer and the About page web updater are intended for Debian-based systems with systemd. Other Linux distributions require manual installation and manual updates.
+
 Run:
 
   ```bash
@@ -211,6 +213,8 @@ pip install -r requirements.txt
 <details>
 <summary><strong> Installation on other Linux distributions) </strong> ⬇</summary>
 No automatic installer is provided.
+
+The About page web updater is disabled outside Debian-based systemd systems.
 
 
 You must manually install:

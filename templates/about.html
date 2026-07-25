@@ -32,6 +32,7 @@
             class="about-section about-update-section"
             id="aboutUpdatePanel"
             data-url="{{ url_for('api_update_check') }}"
+            data-updater-supported="{{ 'true' if about_info.updater_platform.supported else 'false' }}"
             data-checking="{{ t('ABOUT_UPDATE_CHECKING') }}"
             data-current="{{ t('ABOUT_UPDATE_CURRENT') }}"
             data-available="{{ t('ABOUT_UPDATE_AVAILABLE') }}"
@@ -83,27 +84,38 @@
             data-starting="{{ t('ABOUT_UPDATER_STARTING') }}"
             data-started="{{ t('ABOUT_UPDATER_STARTED') }}"
             data-running="{{ t('ABOUT_UPDATER_RUNNING') }}"
-            data-reload-hint="{{ t('ABOUT_UPDATER_RELOAD_HINT') }}"
             data-start-error="{{ t('ABOUT_UPDATER_START_ERROR') }}"
             data-confirm="{{ t('ABOUT_UPDATER_CONFIRM') }}"
+            data-progress-title="{{ t('ABOUT_UPDATER_PROGRESS') }}"
+            data-step-download="{{ t('ABOUT_UPDATER_STEP_DOWNLOAD') }}"
+            data-step-validate="{{ t('ABOUT_UPDATER_STEP_VALIDATE') }}"
+            data-step-install="{{ t('ABOUT_UPDATER_STEP_INSTALL') }}"
+            data-step-finish="{{ t('ABOUT_UPDATER_STEP_FINISH') }}"
+            data-updater-supported="{{ 'true' if about_info.updater_platform.supported else 'false' }}"
+            data-updater-unsupported="{{ t('ABOUT_UPDATER_UNSUPPORTED_START') }}"
           >
             <div class="d-flex flex-wrap justify-content-between align-items-center">
               <div class="mb-2 mb-sm-0">
                 <h6>{{ t("ABOUT_UPDATER_STATUS_TITLE") }}</h6>
                 <div class="text-muted small">{{ t("ABOUT_UPDATER_STATUS_HINT") }}</div>
+                <div class="text-muted small mt-1">{{ t("ABOUT_UPDATER_PLATFORM_NOTE") }}</div>
               </div>
               <div class="about-updater-actions">
                 <button type="button" class="btn btn-info btn-sm" id="aboutUpdaterStartButton" disabled>
                   {{ t("ABOUT_UPDATER_START") }}
-                </button>
-                <button type="button" class="btn btn-outline-info btn-sm" id="aboutUpdaterReloadButton" style="display:none;">
-                  {{ t("ABOUT_UPDATER_REFRESH_PAGE") }}
                 </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="aboutUpdaterRefreshButton">
                   {{ t("ABOUT_UPDATER_REFRESH") }}
                 </button>
               </div>
             </div>
+            {% if not about_info.updater_platform.supported %}
+              <div class="alert alert-warning py-2 px-3 mt-3 mb-0">
+                {{ t("ABOUT_UPDATER_PLATFORM_UNSUPPORTED") }}
+                {{ t("ABOUT_UPDATER_PLATFORM_DETECTED") }}:
+                <strong>{{ about_info.updater_platform.label }}</strong>.
+              </div>
+            {% endif %}
 
             <div class="table-responsive mt-3">
               <table class="table table-sm table-theme about-table mb-0">
@@ -125,8 +137,33 @@
             </div>
 
             <div class="about-updater-hint mt-3" id="aboutUpdaterHint" style="display:none;"></div>
+            <div class="about-updater-steps mt-3" id="aboutUpdaterSteps" style="display:none;"></div>
             <div class="about-updater-log-title mt-3">{{ t("ABOUT_UPDATER_LOG") }}</div>
             <pre class="about-updater-log mb-0" id="aboutUpdaterLog">{{ t("ABOUT_UPDATER_LOG_EMPTY") }}</pre>
+            <div class="text-muted small mt-2">{{ t("ABOUT_UPDATER_HISTORY_HINT") }} <code>/var/log/eggscan-update.log</code>.</div>
+          </div>
+        {% endif %}
+
+        {% if current_user.is_admin %}
+          <div class="about-updater-modal" id="aboutUpdaterModal" aria-hidden="true">
+            <div class="about-updater-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="aboutUpdaterModalTitle">
+              <div class="about-updater-modal-header">
+                <h6 id="aboutUpdaterModalTitle">{{ t("ABOUT_UPDATER_MODAL_TITLE") }}</h6>
+                <span class="about-updater-modal-state" id="aboutUpdaterModalState">-</span>
+              </div>
+              <div class="about-updater-modal-message" id="aboutUpdaterModalMessage">
+                {{ t("ABOUT_UPDATER_MODAL_WAIT") }}
+              </div>
+              <div class="about-updater-steps" id="aboutUpdaterModalSteps"></div>
+              <div class="about-updater-hint mt-3" id="aboutUpdaterModalHint">
+                {{ t("ABOUT_UPDATER_MODAL_WAIT") }}
+              </div>
+              <div class="about-updater-modal-actions">
+                <button type="button" class="btn btn-info btn-sm" id="aboutUpdaterModalCloseButton" disabled>
+                  {{ t("ABOUT_UPDATER_MODAL_CLOSE") }}
+                </button>
+              </div>
+            </div>
           </div>
         {% endif %}
 
@@ -150,10 +187,6 @@
                 <tr>
                   <th>{{ t("ABOUT_DATABASE_SIZE") }}</th>
                   <td>{{ about_info.db_size }}</td>
-                </tr>
-                <tr>
-                  <th>{{ t("ABOUT_VERSION_FILE") }}</th>
-                  <td><code>{{ about_info.version_file }}</code></td>
                 </tr>
               </tbody>
             </table>
@@ -201,6 +234,7 @@
   var checked = document.getElementById("aboutUpdateChecked");
   var releaseLink = document.getElementById("aboutUpdateReleaseLink");
   var updaterStartButton = document.getElementById("aboutUpdaterStartButton");
+  var updaterSupported = panel.getAttribute("data-updater-supported") === "true";
 
   function text(name) {
     return panel.getAttribute("data-" + name) || "";
@@ -232,7 +266,7 @@
 
     showDetails(data);
     if (updaterStartButton) {
-      updaterStartButton.disabled = data.update_available !== true;
+      updaterStartButton.disabled = !updaterSupported || data.update_available !== true;
     }
 
     if (data.update_available === true) {
@@ -290,20 +324,37 @@
 
   var button = document.getElementById("aboutUpdaterRefreshButton");
   var startButton = document.getElementById("aboutUpdaterStartButton");
-  var reloadButton = document.getElementById("aboutUpdaterReloadButton");
   var stateCell = document.getElementById("aboutUpdaterState");
   var messageCell = document.getElementById("aboutUpdaterMessage");
   var updatedCell = document.getElementById("aboutUpdaterUpdated");
   var logBox = document.getElementById("aboutUpdaterLog");
   var hintBox = document.getElementById("aboutUpdaterHint");
+  var stepsBox = document.getElementById("aboutUpdaterSteps");
+  var modal = document.getElementById("aboutUpdaterModal");
+  var modalState = document.getElementById("aboutUpdaterModalState");
+  var modalMessage = document.getElementById("aboutUpdaterModalMessage");
+  var modalSteps = document.getElementById("aboutUpdaterModalSteps");
+  var modalHint = document.getElementById("aboutUpdaterModalHint");
+  var modalCloseButton = document.getElementById("aboutUpdaterModalCloseButton");
   var pollTimer = null;
   var pollingActive = false;
+  var startRequestedAtMs = 0;
+  var showReloadHintOnSuccess = false;
   var activeStates = {
     checking: true,
     downloading: true,
     installing: true,
+    validating: true,
+    finishing: true,
     queued: true,
     starting: true
+  };
+  var stepOrder = ["download", "validate", "install", "finish"];
+  var terminalStates = {
+    current: true,
+    dry_run_ok: true,
+    error: true,
+    success: true
   };
 
   function panelText(name) {
@@ -319,6 +370,134 @@
     if (!hintBox) return;
     hintBox.textContent = value || "";
     hintBox.style.display = value ? "" : "none";
+  }
+
+  function clearReloadPrompt() {
+    setHint("");
+  }
+
+  function renderSteps(steps, targetBox) {
+    var target = targetBox || stepsBox;
+    if (!target || !steps || typeof steps !== "object") {
+      if (target) {
+        target.style.display = "none";
+      }
+      return;
+    }
+
+    target.innerHTML = "";
+
+    var title = document.createElement("div");
+    title.className = "about-updater-steps-title";
+    title.textContent = panelText("progress-title");
+    target.appendChild(title);
+
+    stepOrder.forEach(function (stepId) {
+      var state = steps[stepId] || "pending";
+      if (["done", "running", "pending", "error"].indexOf(state) === -1) {
+        state = "pending";
+      }
+
+      var item = document.createElement("div");
+      item.className = "about-updater-step";
+      item.setAttribute("data-state", state);
+
+      var marker = document.createElement("span");
+      marker.className = "about-updater-step-marker";
+      if (state === "done") {
+        marker.textContent = "\u2713";
+      } else if (state === "error") {
+        marker.textContent = "!";
+      }
+
+      var label = document.createElement("span");
+      label.className = "about-updater-step-label";
+      label.textContent = panelText("step-" + stepId);
+
+      item.appendChild(marker);
+      item.appendChild(label);
+      target.appendChild(item);
+    });
+
+    target.style.display = "";
+  }
+
+  function openUpdaterModal() {
+    if (!modal) return;
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    if (modalCloseButton) {
+      modalCloseButton.disabled = true;
+      modalCloseButton.setAttribute("data-reload", "0");
+    }
+    if (modalState) {
+      modalState.textContent = "starting";
+    }
+    if (modalMessage) {
+      modalMessage.textContent = panelText("starting");
+    }
+    if (modalHint) {
+      modalHint.textContent = panelText("running");
+      modalHint.style.display = "";
+    }
+    renderSteps({
+      download: "running",
+      validate: "pending",
+      install: "pending",
+      finish: "pending"
+    }, modalSteps);
+  }
+
+  function finishUpdaterModal(status, reloadAfterClose) {
+    if (!modal) return;
+    if (modalState) {
+      modalState.textContent = status.state || "-";
+    }
+    if (modalMessage) {
+      modalMessage.textContent = status.message || panelText("no-status");
+    }
+    renderSteps(status.steps, modalSteps);
+    if (modalHint) {
+      if (reloadAfterClose) {
+        modalHint.textContent = "";
+        modalHint.style.display = "none";
+      } else {
+        modalHint.textContent = panelText("start-error");
+        modalHint.style.display = "";
+      }
+    }
+    if (modalCloseButton) {
+      modalCloseButton.disabled = false;
+      modalCloseButton.setAttribute("data-reload", reloadAfterClose ? "1" : "0");
+    }
+  }
+
+  function updateUpdaterModal(status) {
+    if (!modal || !modal.classList.contains("is-open")) return;
+    if (modalState) {
+      modalState.textContent = status.state || "-";
+    }
+    if (modalMessage) {
+      modalMessage.textContent = status.message || panelText("running");
+    }
+    if (modalHint) {
+      modalHint.textContent = panelText("running");
+      modalHint.style.display = "";
+    }
+    renderSteps(status.steps, modalSteps);
+  }
+
+  function closeUpdaterModal() {
+    if (!modal) return;
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+    renderSteps(null, modalSteps);
+  }
+
+  function statusUpdatedAtMs(status) {
+    var raw = status.updated_at_utc || "";
+    var parsed = Date.parse(raw);
+    return isNaN(parsed) ? 0 : parsed;
   }
 
   function scheduleStatusRefresh(delay) {
@@ -344,9 +523,8 @@
       messageCell.textContent = panelText("error");
       updatedCell.textContent = "-";
       logBox.textContent = panelText("log-empty");
-      if (reloadButton) {
-        reloadButton.style.display = "none";
-      }
+      renderSteps(null);
+      clearReloadPrompt();
       return;
     }
 
@@ -356,33 +534,71 @@
     messageCell.textContent = status.message || panelText("no-status");
     updatedCell.textContent = status.updated_at_local || status.updated_at_utc || "-";
 
+    if (
+      pollingActive &&
+      startRequestedAtMs &&
+      terminalStates[state] &&
+      statusUpdatedAtMs(status) < (startRequestedAtMs - 1000)
+    ) {
+      stateCell.textContent = "queued";
+      messageCell.textContent = panelText("started");
+      setHint(panelText("running"));
+      updateUpdaterModal({
+        state: "queued",
+        message: panelText("started"),
+        steps: {
+          download: "running",
+          validate: "pending",
+          install: "pending",
+          finish: "pending"
+        }
+      });
+      scheduleStatusRefresh(3000);
+      return;
+    }
+
     var lines = Array.isArray(data.log_lines) ? data.log_lines : [];
     logBox.textContent = lines.length ? lines.join("\n") : panelText("log-empty");
 
     if (state === "success") {
+      var shouldShowReloadHint = showReloadHintOnSuccess && pollingActive;
       stopStatusRefresh();
-      setHint(panelText("reload-hint"));
-      if (reloadButton) {
-        reloadButton.style.display = "";
+      if (shouldShowReloadHint) {
+        renderSteps(null);
+        clearReloadPrompt();
+        finishUpdaterModal(status, true);
+      } else {
+        renderSteps(null);
+        clearReloadPrompt();
       }
+      showReloadHintOnSuccess = false;
+      return;
+    }
+
+    if (terminalStates[state]) {
+      var shouldShowTerminalModal = showReloadHintOnSuccess && pollingActive;
+      stopStatusRefresh();
+      if (shouldShowTerminalModal) {
+        finishUpdaterModal(status, false);
+      }
+      showReloadHintOnSuccess = false;
+      renderSteps(null);
+      clearReloadPrompt();
       return;
     }
 
     if (activeStates[state]) {
       pollingActive = true;
+      renderSteps(status.steps);
+      updateUpdaterModal(status);
       setHint(panelText("running"));
-      if (reloadButton) {
-        reloadButton.style.display = "none";
-      }
       scheduleStatusRefresh(3000);
       return;
     }
 
     stopStatusRefresh();
-    setHint("");
-    if (reloadButton) {
-      reloadButton.style.display = "none";
-    }
+    renderSteps(null);
+    clearReloadPrompt();
   }
 
   function refreshStatus(options) {
@@ -422,13 +638,19 @@
   function startUpdate() {
     var startUrl = panel.getAttribute("data-start-url");
     if (!startUrl) return;
+    if (panel.getAttribute("data-updater-supported") !== "true") {
+      stateCell.textContent = "error";
+      messageCell.textContent = panelText("updater-unsupported");
+      setHint(panelText("updater-unsupported"));
+      return;
+    }
     if (!window.confirm(panelText("confirm"))) return;
 
     startButton.disabled = true;
     button.disabled = true;
-    if (reloadButton) {
-      reloadButton.style.display = "none";
-    }
+    startRequestedAtMs = Date.now();
+    showReloadHintOnSuccess = true;
+    openUpdaterModal();
     setHint(panelText("running"));
     stateCell.textContent = "starting";
     messageCell.textContent = panelText("starting");
@@ -453,7 +675,18 @@
           stateCell.textContent = "error";
           messageCell.textContent = (data && data.error) ? data.error : panelText("start-error");
           startButton.disabled = false;
-          setHint("");
+          finishUpdaterModal({
+            state: "error",
+            message: (data && data.error) ? data.error : panelText("start-error"),
+            steps: {
+              download: "error",
+              validate: "pending",
+              install: "pending",
+              finish: "pending"
+            }
+          }, false);
+          showReloadHintOnSuccess = false;
+          clearReloadPrompt();
           return;
         }
 
@@ -466,7 +699,18 @@
         stateCell.textContent = "error";
         messageCell.textContent = panelText("start-error");
         startButton.disabled = false;
-        setHint("");
+        finishUpdaterModal({
+          state: "error",
+          message: panelText("start-error"),
+          steps: {
+            download: "error",
+            validate: "pending",
+            install: "pending",
+            finish: "pending"
+          }
+        }, false);
+        showReloadHintOnSuccess = false;
+        clearReloadPrompt();
       })
       .finally(function () {
         button.disabled = false;
@@ -475,11 +719,22 @@
 
   button.addEventListener("click", refreshStatus);
   startButton.addEventListener("click", startUpdate);
-  if (reloadButton) {
-    reloadButton.addEventListener("click", function () {
-      window.location.reload();
+  if (modalCloseButton) {
+    modalCloseButton.addEventListener("click", function () {
+      var shouldReload = modalCloseButton.getAttribute("data-reload") === "1";
+      closeUpdaterModal();
+      if (shouldReload) {
+        window.location.reload();
+      }
     });
   }
+  window.addEventListener("pageshow", function (event) {
+    if (!event.persisted) return;
+    showReloadHintOnSuccess = false;
+    clearReloadPrompt();
+    closeUpdaterModal();
+    refreshStatus({ automatic: true });
+  });
   refreshStatus();
 })();
 </script>

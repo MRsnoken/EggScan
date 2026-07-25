@@ -57,11 +57,16 @@ GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/MRsnoken/EggScan/relea
 UPDATE_CHECK_TIMEOUT_SECONDS = 6
 UPDATE_CHECK_CACHE_SECONDS = 600
 UPDATE_STATUS_FILE = "/var/lib/eggscan/update_status.json"
-UPDATE_LOG_FILE = "/var/log/eggscan-update.log"
+UPDATE_LOG_FILE = "/var/log/eggscan-update-latest.log"
 UPDATE_LOG_TAIL_LINES = 80
 UPDATE_LOG_TAIL_BYTES = 200 * 1024
 UPDATER_SERVICE_NAME = "eggscan-update.service"
 UPDATER_START_TIMEOUT_SECONDS = 10
+OS_RELEASE_FILE = "/etc/os-release"
+LEGACY_UPDATER_RELOAD_HINT_FRAGMENTS = (
+    "reload this page to show the new version",
+    "ladda om sidan för att visa ny version",
+)
 _UPDATE_CHECK_CACHE = {"checked_at": None, "payload": None}
 
 
@@ -342,18 +347,29 @@ TRANSLATIONS = {
         "ABOUT_UPDATER_STATUS_TITLE": "Updater-status",
         "ABOUT_UPDATER_STATUS_HINT": "Visar senaste status från den manuella updateraren.",
         "ABOUT_UPDATER_REFRESH": "Uppdatera status",
-        "ABOUT_UPDATER_REFRESH_PAGE": "Ladda om sidan",
         "ABOUT_UPDATER_START": "Starta uppdatering",
         "ABOUT_UPDATER_STARTING": "Startar updateraren...",
         "ABOUT_UPDATER_STARTED": "Updateraren startades. Följ statusen nedan.",
         "ABOUT_UPDATER_RUNNING": "Updateraren kör. Status och logg uppdateras automatiskt.",
-        "ABOUT_UPDATER_RELOAD_HINT": "Uppdateringen är klar. Ladda om sidan för att visa ny version och uppdaterad sida.",
+        "ABOUT_UPDATER_PLATFORM_NOTE": "Webbuppdateraren stöder Debian-, Ubuntu- och Raspberry Pi OS-baserade system med systemd.",
+        "ABOUT_UPDATER_PLATFORM_UNSUPPORTED": "Webbuppdateraren är inaktiverad på detta system.",
+        "ABOUT_UPDATER_PLATFORM_DETECTED": "Upptäckt system",
+        "ABOUT_UPDATER_UNSUPPORTED_START": "Webbuppdateraren är bara tillgänglig på Debian-, Ubuntu- och Raspberry Pi OS-baserade system med systemd.",
+        "ABOUT_UPDATER_MODAL_TITLE": "Uppdaterar EggScan",
+        "ABOUT_UPDATER_MODAL_CLOSE": "Stäng och ladda om",
+        "ABOUT_UPDATER_MODAL_WAIT": "Knappen aktiveras när uppdateringen är klar.",
         "ABOUT_UPDATER_START_ERROR": "Kunde inte starta updateraren.",
         "ABOUT_UPDATER_CONFIRM": "Starta uppdatering från senaste GitHub-release?",
         "ABOUT_UPDATER_STATE": "Status",
         "ABOUT_UPDATER_MESSAGE": "Meddelande",
         "ABOUT_UPDATER_UPDATED": "Uppdaterad",
+        "ABOUT_UPDATER_PROGRESS": "Förlopp",
+        "ABOUT_UPDATER_STEP_DOWNLOAD": "Hämtar release",
+        "ABOUT_UPDATER_STEP_VALIDATE": "Kontrollerar paket",
+        "ABOUT_UPDATER_STEP_INSTALL": "Kör installeraren",
+        "ABOUT_UPDATER_STEP_FINISH": "Slutför uppdatering",
         "ABOUT_UPDATER_LOG": "Senaste logg",
+        "ABOUT_UPDATER_HISTORY_HINT": "För historik över tidigare updater-körningar, se",
         "ABOUT_UPDATER_NO_STATUS": "Ingen updater-status ännu.",
         "ABOUT_UPDATER_LOG_EMPTY": "Ingen updater-logg ännu.",
         "ABOUT_UPDATER_ERROR": "Kunde inte läsa updater-status.",
@@ -702,18 +718,29 @@ TRANSLATIONS = {
         "ABOUT_UPDATER_STATUS_TITLE": "Updater status",
         "ABOUT_UPDATER_STATUS_HINT": "Shows the latest status from the manual updater.",
         "ABOUT_UPDATER_REFRESH": "Refresh status",
-        "ABOUT_UPDATER_REFRESH_PAGE": "Reload page",
         "ABOUT_UPDATER_START": "Start update",
         "ABOUT_UPDATER_STARTING": "Starting updater...",
         "ABOUT_UPDATER_STARTED": "Updater started. Follow the status below.",
         "ABOUT_UPDATER_RUNNING": "Updater is running. Status and log output refresh automatically.",
-        "ABOUT_UPDATER_RELOAD_HINT": "Update complete. Reload this page to show the new version and refreshed UI.",
+        "ABOUT_UPDATER_PLATFORM_NOTE": "The web updater supports Debian, Ubuntu and Raspberry Pi OS based systems with systemd.",
+        "ABOUT_UPDATER_PLATFORM_UNSUPPORTED": "The web updater is disabled on this system.",
+        "ABOUT_UPDATER_PLATFORM_DETECTED": "Detected system",
+        "ABOUT_UPDATER_UNSUPPORTED_START": "The web updater is only available on Debian, Ubuntu and Raspberry Pi OS based systems with systemd.",
+        "ABOUT_UPDATER_MODAL_TITLE": "Updating EggScan",
+        "ABOUT_UPDATER_MODAL_CLOSE": "Close and reload",
+        "ABOUT_UPDATER_MODAL_WAIT": "The button is enabled when the update is complete.",
         "ABOUT_UPDATER_START_ERROR": "Could not start the updater.",
         "ABOUT_UPDATER_CONFIRM": "Start update from the latest GitHub release?",
         "ABOUT_UPDATER_STATE": "Status",
         "ABOUT_UPDATER_MESSAGE": "Message",
         "ABOUT_UPDATER_UPDATED": "Updated",
+        "ABOUT_UPDATER_PROGRESS": "Progress",
+        "ABOUT_UPDATER_STEP_DOWNLOAD": "Download release",
+        "ABOUT_UPDATER_STEP_VALIDATE": "Validate package",
+        "ABOUT_UPDATER_STEP_INSTALL": "Run installer",
+        "ABOUT_UPDATER_STEP_FINISH": "Finish update",
         "ABOUT_UPDATER_LOG": "Latest log",
+        "ABOUT_UPDATER_HISTORY_HINT": "For previous updater run history, check",
         "ABOUT_UPDATER_NO_STATUS": "No updater status yet.",
         "ABOUT_UPDATER_LOG_EMPTY": "No updater log yet.",
         "ABOUT_UPDATER_ERROR": "Could not read updater status.",
@@ -1500,6 +1527,53 @@ def get_process_identity_label() -> str:
     return f"{user_name}:{group_name}"
 
 
+def parse_os_release(path: str = OS_RELEASE_FILE) -> dict:
+    data = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                raw = line.strip()
+                if not raw or raw.startswith("#") or "=" not in raw:
+                    continue
+                key, value = raw.split("=", 1)
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                data[key.strip()] = value
+    except Exception:
+        return {}
+    return data
+
+
+def executable_exists(candidates: tuple[str, ...]) -> bool:
+    return any(os.path.exists(path) and os.access(path, os.X_OK) for path in candidates)
+
+
+def get_updater_platform_info() -> dict:
+    os_release = parse_os_release()
+    os_id = str(os_release.get("ID", "")).strip().lower()
+    os_like = str(os_release.get("ID_LIKE", "")).strip().lower()
+    os_family = {os_id} if os_id else set()
+    os_family.update(part for part in os_like.replace(",", " ").split() if part)
+
+    debian_based = bool({"debian", "ubuntu"} & os_family)
+    systemctl_available = executable_exists(("/usr/bin/systemctl", "/bin/systemctl"))
+    supported = debian_based and systemctl_available
+    label = (
+        str(os_release.get("PRETTY_NAME", "")).strip()
+        or str(os_release.get("NAME", "")).strip()
+        or os_id
+        or "Unknown Linux"
+    )
+
+    return {
+        "supported": supported,
+        "debian_based": debian_based,
+        "systemctl_available": systemctl_available,
+        "label": label,
+    }
+
+
 def get_about_info() -> dict:
     db_exists = os.path.exists(DB_FILE)
     db_size = os.path.getsize(DB_FILE) if db_exists else None
@@ -1511,6 +1585,7 @@ def get_about_info() -> dict:
         "db_file": DB_FILE,
         "db_size": format_file_size(db_size) if db_size is not None else "-",
         "version_file": VERSION_FILE,
+        "updater_platform": get_updater_platform_info(),
         "process_identity": get_process_identity_label(),
         "python_version": sys.version.split()[0],
         "sqlite_version": sqlite3.sqlite_version,
@@ -1664,16 +1739,30 @@ def tail_text_file(path: str, max_lines: int, max_bytes: int) -> list[str]:
     return text_value.splitlines()[-max_lines:]
 
 
+def clean_legacy_updater_reload_hint(value: str, fallback: str = "Update complete") -> str:
+    text_value = str(value or "")
+    normalized = text_value.lower()
+    if any(fragment in normalized for fragment in LEGACY_UPDATER_RELOAD_HINT_FRAGMENTS):
+        return fallback
+    return text_value
+
+
 def get_updater_status_payload() -> dict:
     status = read_json_file_if_exists(UPDATE_STATUS_FILE)
     if status:
         updated_at_utc = str(status.get("updated_at_utc", "")).strip()
         status["updated_at_local"] = format_updater_timestamp(updated_at_utc)
+        latest_version = str(status.get("latest_version", "")).strip()
+        fallback_message = f"Update complete: EggScan {latest_version}" if latest_version else "Update complete"
+        status["message"] = clean_legacy_updater_reload_hint(status.get("message", ""), fallback_message)
 
     return {
         "ok": True,
         "status": status,
-        "log_lines": tail_text_file(UPDATE_LOG_FILE, UPDATE_LOG_TAIL_LINES, UPDATE_LOG_TAIL_BYTES),
+        "log_lines": [
+            clean_legacy_updater_reload_hint(line)
+            for line in tail_text_file(UPDATE_LOG_FILE, UPDATE_LOG_TAIL_LINES, UPDATE_LOG_TAIL_BYTES)
+        ],
     }
 
 
@@ -1685,6 +1774,9 @@ def first_executable_path(candidates: tuple[str, ...]) -> str:
 
 
 def start_updater_service() -> dict:
+    if not get_updater_platform_info().get("supported"):
+        raise RuntimeError("Web updater is not supported on this system.")
+
     sudo_path = first_executable_path(("/usr/bin/sudo", "/bin/sudo"))
     systemctl_path = first_executable_path(("/usr/bin/systemctl", "/bin/systemctl"))
     command = [
@@ -3221,6 +3313,12 @@ def api_updater_status():
 def api_updater_start():
     if not current_user.is_admin:
         abort(403)
+
+    if not get_updater_platform_info().get("supported"):
+        return jsonify({
+            "ok": False,
+            "error": t("ABOUT_UPDATER_UNSUPPORTED_START"),
+        }), 400
 
     try:
         payload = start_updater_service()

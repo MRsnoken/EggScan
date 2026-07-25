@@ -2,7 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
 
+## [1.8.2] - 2026-07-25
+
+### Added
+  -  Updater progress modal on the About page with done, running, pending and error checklist states.
+  -  Admin-only About page note pointing to the full updater history log.
+
+### Changed
+  -  About page updater is disabled on non-Debian/systemd systems and README now documents that support limit.
+  -  About page updater log now shows only the latest updater run while the full history remains in `/var/log/eggscan-update.log`.
+  -  About page install information no longer shows the internal `version.json` path.
+
+### Fixed
+  -  Stale updater reload prompts no longer remain visible on the About page after an update.
 
 ## [1.8.1] - 2026-07-23
 
