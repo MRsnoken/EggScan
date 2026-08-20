@@ -18,19 +18,61 @@ VENV_DIR="$INSTALL_DIR/venv"
 APP_USER="eggscan"
 APP_GROUP="eggscan"
 
-WEB_SERVICE_FILE="/lib/systemd/system/eggscan-web.service"
-SCAN_SERVICE_FILE="/lib/systemd/system/eggscan-scan.service"
-UPDATE_SERVICE_FILE="/lib/systemd/system/eggscan-update.service"
+SYSTEMD_UNIT_DIR="/etc/systemd/system"
+WEB_SERVICE_FILE="$SYSTEMD_UNIT_DIR/eggscan-web.service"
+SCAN_SERVICE_FILE="$SYSTEMD_UNIT_DIR/eggscan-scan.service"
+UPDATE_SERVICE_FILE="$SYSTEMD_UNIT_DIR/eggscan-update.service"
 UPDATER_SCRIPT_FILE="/usr/local/sbin/eggscan-update"
 UPDATE_SUDOERS_FILE="/etc/sudoers.d/eggscan-update"
 UPDATE_SERVICE_NAME="eggscan-update.service"
-OLD_SERVICE_FILE="/lib/systemd/system/eggscan.service"
+OLD_SERVICE_FILE="$SYSTEMD_UNIT_DIR/eggscan.service"
+LEGACY_SYSTEMD_UNIT_DIRS=(
+  /lib/systemd/system
+  /usr/lib/systemd/system
+)
 
 DB_PATH="$INSTALL_DIR/eggscan.db"
 SECRET_PATH="$INSTALL_DIR/secret_key.txt"
 APP_MAIN="$INSTALL_DIR/eggscan.py"
 UPDATER_SOURCE="$SCRIPT_DIR/scripts/eggscan-update"
 UPDATER_SERVICE_SOURCE="$SCRIPT_DIR/systemd/eggscan-update.service"
+
+PACKAGE_MANAGER=""
+OS_ID="unknown"
+OS_ID_LIKE=""
+OS_PRETTY_NAME="Unknown Linux"
+
+APT_PACKAGES=(
+  python3
+  python3-pip
+  python3-venv
+  nmap
+  iproute2
+  sqlite3
+  rsync
+  psmisc
+  sudo
+  iputils-ping
+  ca-certificates
+)
+
+DNF_PACKAGES=(
+  python3
+  python3-pip
+  nmap
+  iproute
+  sqlite
+  rsync
+  psmisc
+  sudo
+  iputils
+  ca-certificates
+  shadow-utils
+  util-linux
+  coreutils
+  findutils
+  glibc-common
+)
 
 IS_UPGRADE=0
 if [ -f "$DB_PATH" ] || [ -f "$SECRET_PATH" ] || [ -f "$APP_MAIN" ]; then
@@ -66,6 +108,112 @@ need_cmd() {
     echo "ERROR: Required command not found: $c"
     exit 1
   fi
+}
+
+remove_legacy_unit_copies() {
+  local unit_name="$1"
+  local legacy_dir
+  local legacy_path
+
+  for legacy_dir in "${LEGACY_SYSTEMD_UNIT_DIRS[@]}"; do
+    legacy_path="$legacy_dir/$unit_name"
+    if [ -e "$legacy_path" ] || [ -L "$legacy_path" ]; then
+      echo "Removing superseded unit file: $legacy_path"
+      rm -f "$legacy_path"
+    fi
+  done
+}
+
+detect_platform() {
+  if [ -r /etc/os-release ]; then
+    local os_release_values
+    os_release_values="$(
+      set +u
+      . /etc/os-release
+      printf '%s|%s|%s' \
+        "${ID:-unknown}" \
+        "${ID_LIKE:-}" \
+        "${PRETTY_NAME:-${ID:-Unknown Linux}}"
+    )"
+    IFS='|' read -r OS_ID OS_ID_LIKE OS_PRETTY_NAME <<< "$os_release_values"
+  fi
+
+  local os_family=" $OS_ID $OS_ID_LIKE "
+  case "$os_family" in
+    *" debian "*|*" ubuntu "*)
+      PACKAGE_MANAGER="apt"
+      ;;
+    *" fedora "*|*" rhel "*|*" centos "*)
+      PACKAGE_MANAGER="dnf"
+      ;;
+    *)
+      if command -v apt-get >/dev/null 2>&1; then
+        PACKAGE_MANAGER="apt"
+      elif command -v dnf >/dev/null 2>&1; then
+        PACKAGE_MANAGER="dnf"
+      else
+        echo "ERROR: Unsupported Linux distribution: $OS_PRETTY_NAME"
+        echo "       EggScan requires apt-get or dnf."
+        exit 1
+      fi
+      ;;
+  esac
+
+  if [ "$PACKAGE_MANAGER" = "apt" ]; then
+    need_cmd apt-get
+  else
+    need_cmd dnf
+  fi
+
+  need_cmd systemctl
+  if [ ! -d /run/systemd/system ]; then
+    echo "ERROR: EggScan requires systemd to be running."
+    exit 1
+  fi
+
+  echo "Detected operating system: $OS_PRETTY_NAME"
+  echo "Package manager: $PACKAGE_MANAGER"
+}
+
+install_system_packages() {
+  case "$PACKAGE_MANAGER" in
+    apt)
+      echo "Updating package index with apt-get..."
+      check_dpkg_lock
+      apt-get update -y
+
+      echo "Installing system packages with apt-get (${APT_PACKAGES[*]})..."
+      check_dpkg_lock
+      apt-get install -y "${APT_PACKAGES[@]}"
+      ;;
+    dnf)
+      echo "Refreshing package metadata with dnf..."
+      dnf -y makecache --refresh
+
+      echo "Installing system packages with dnf (${DNF_PACKAGES[*]})..."
+      dnf -y install "${DNF_PACKAGES[@]}"
+      ;;
+    *)
+      echo "ERROR: Internal installer error: no package manager selected."
+      exit 1
+      ;;
+  esac
+}
+
+check_python_version() {
+  python3 - <<'PY'
+import sys
+
+minimum = (3, 9)
+current = sys.version_info[:3]
+version = ".".join(str(part) for part in current)
+
+if current < minimum:
+    print(f"ERROR: EggScan requires Python 3.9 or newer; found Python {version}.", file=sys.stderr)
+    raise SystemExit(1)
+
+print(f"Python version OK: {version}")
+PY
 }
 
 ensure_app_user() {
@@ -203,19 +351,24 @@ install_update_sudoers() {
 # 2. Install system packages
 # ------------------------------------------------------------------------------
 
-echo "Updating package index..."
-check_dpkg_lock
-apt-get update -y
+detect_platform
+install_system_packages
 
-echo "Installing system packages (python3, pip, venv, nmap, iproute2, sqlite3, rsync, psmisc, sudo)..."
-check_dpkg_lock
-apt-get install -y python3 python3-pip python3-venv nmap iproute2 sqlite3 rsync psmisc sudo
-
+need_cmd python3
+need_cmd nmap
+need_cmd ip
+need_cmd ping
 need_cmd rsync
 need_cmd sqlite3
 need_cmd fuser
 need_cmd install
 need_cmd sudo
+need_cmd getent
+need_cmd groupadd
+need_cmd useradd
+need_cmd find
+
+check_python_version
 
 echo
 echo "System packages done."
@@ -436,6 +589,8 @@ echo "  Scan: $SCAN_SERVICE_FILE"
 echo "  Update: $UPDATE_SERVICE_FILE (manual oneshot, not enabled)"
 echo
 
+install -d -o root -g root -m 755 "$SYSTEMD_UNIT_DIR"
+
 old_unit_exists=0
 if systemctl list-unit-files eggscan.service >/dev/null 2>&1; then
   old_unit_exists=1
@@ -448,10 +603,11 @@ if [ "$old_unit_exists" -eq 1 ]; then
   systemctl mask eggscan.service 2>/dev/null || true
 fi
 
-if [ -f "$OLD_SERVICE_FILE" ]; then
+if [ -e "$OLD_SERVICE_FILE" ] || [ -L "$OLD_SERVICE_FILE" ]; then
   echo "Removing old unit file: $OLD_SERVICE_FILE"
   rm -f "$OLD_SERVICE_FILE"
 fi
+remove_legacy_unit_copies "eggscan.service"
 
 cat > "$WEB_SERVICE_FILE" <<EOF
 [Unit]
@@ -533,9 +689,15 @@ fi
 
 systemctl daemon-reload
 
-echo "Enabling services at boot..."
-systemctl enable eggscan-web.service
-systemctl enable eggscan-scan.service
+echo "Resetting service enablement to the managed unit files..."
+systemctl reenable eggscan-web.service eggscan-scan.service
+
+remove_legacy_unit_copies "eggscan-web.service"
+remove_legacy_unit_copies "eggscan-scan.service"
+if [ -f "$UPDATE_SERVICE_FILE" ]; then
+  remove_legacy_unit_copies "eggscan-update.service"
+fi
+systemctl daemon-reload
 
 echo "Restarting services..."
 systemctl restart eggscan-scan.service || systemctl start eggscan-scan.service

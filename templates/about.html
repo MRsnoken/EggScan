@@ -85,6 +85,7 @@
             data-started="{{ t('ABOUT_UPDATER_STARTED') }}"
             data-running="{{ t('ABOUT_UPDATER_RUNNING') }}"
             data-start-error="{{ t('ABOUT_UPDATER_START_ERROR') }}"
+            data-failed-hint="{{ t('ABOUT_UPDATER_FAILED_HINT') }}"
             data-confirm="{{ t('ABOUT_UPDATER_CONFIRM') }}"
             data-progress-title="{{ t('ABOUT_UPDATER_PROGRESS') }}"
             data-step-download="{{ t('ABOUT_UPDATER_STEP_DOWNLOAD') }}"
@@ -462,7 +463,7 @@
         modalHint.textContent = "";
         modalHint.style.display = "none";
       } else {
-        modalHint.textContent = panelText("start-error");
+        modalHint.textContent = panelText("failed-hint");
         modalHint.style.display = "";
       }
     }

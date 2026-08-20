@@ -153,17 +153,19 @@ EggScan is **not** intended for:
 ---
 
 <details>
-<summary><strong> Installation (Debian / Ubuntu) </strong> ⬇</summary>
+<summary><strong> Installation (APT / DNF systems) </strong> ⬇</summary>
 <br>
-Supported Debian-based systems:
+Supported systemd-based families:
 
 - Debian
 - Ubuntu
 - Linux Mint
 - Raspberry Pi OS
-- Other Debian derivatives
+- Fedora
+- RHEL-family systems with DNF and Python 3.9 or newer, including compatible Rocky Linux, AlmaLinux and CentOS Stream releases
+- Other compatible Debian- or DNF-based derivatives
 
-The installer and the About page web updater are intended for Debian-based systems with systemd. Other Linux distributions require manual installation and manual updates.
+The installer automatically selects `apt-get` or `dnf`, installs the appropriate package names and verifies that Python 3.9 or newer is available. The About page web updater supports the same system families when systemd is available. Other Linux distributions require manual installation and manual updates.
 
 Run:
 
@@ -178,8 +180,10 @@ The installer will:
 - Create a Python virtual environment
 - Install Python dependencies inside the venv
 - Copy application files to /opt/eggscan
+- Create the dedicated `eggscan` system user and group
 - Create the main systemd services (`eggscan-web.service` and `eggscan-scan.service`)
 - Install the manual updater service (`eggscan-update.service`, not enabled at boot)
+- Apply restricted file permissions and scan-worker network capabilities
 - Start EggScan automatically
 
 
@@ -202,9 +206,7 @@ Listed in requirements.txt:
 
 </details>
 <details>
-<summary><strong> Development / Python environment </strong> ⬇</summary>
-
-This only installs the Python dependencies for development/testing. It does not create services, users, permissions or the updater.
+<summary><strong> Manual installation </strong> ⬇</summary>
 
   ```bash
 python3 -m venv venv
@@ -213,10 +215,10 @@ pip install -r requirements.txt
 ```
 </details>
 <details>
-<summary><strong> Installation on other Linux distributions) </strong> ⬇</summary>
-No automatic installer is provided.
+<summary><strong> Installation on other Linux distributions </strong> ⬇</summary>
+No automatic installer is provided outside the supported APT/DNF system families.
 
-The About page web updater is disabled outside Debian-based systemd systems.
+The About page web updater is disabled outside supported APT/DNF systems using systemd.
 
 
 You must manually install:
@@ -245,8 +247,8 @@ For advanced users only.
 To remove EggScan completely, stop and disable the services first:
 
 ```bash
-sudo systemctl stop eggscan-web.service eggscan-scan.service eggscan-update.service 2>/dev/null || true
-sudo systemctl disable eggscan-web.service eggscan-scan.service 2>/dev/null || true
+sudo systemctl stop eggscan-web.service eggscan-scan.service eggscan-update.service eggscan.service 2>/dev/null || true
+sudo systemctl disable eggscan-web.service eggscan-scan.service eggscan.service 2>/dev/null || true
 ```
 
 If you may want to restore EggScan later, back up these files before deleting `/opt/eggscan`:
@@ -263,12 +265,21 @@ sudo rm -rf /opt/eggscan/
 sudo rm -f /lib/systemd/system/eggscan-web.service
 sudo rm -f /lib/systemd/system/eggscan-scan.service
 sudo rm -f /lib/systemd/system/eggscan-update.service
+sudo rm -f /lib/systemd/system/eggscan.service
+sudo rm -f /usr/lib/systemd/system/eggscan-web.service
+sudo rm -f /usr/lib/systemd/system/eggscan-scan.service
+sudo rm -f /usr/lib/systemd/system/eggscan-update.service
+sudo rm -f /usr/lib/systemd/system/eggscan.service
 sudo rm -f /etc/systemd/system/eggscan-web.service
 sudo rm -f /etc/systemd/system/eggscan-scan.service
 sudo rm -f /etc/systemd/system/eggscan-update.service
+sudo rm -f /etc/systemd/system/eggscan.service
 sudo rm -f /usr/local/sbin/eggscan-update
+sudo rm -f /etc/sudoers.d/eggscan-update
 sudo rm -f /var/log/eggscan-update.log
+sudo rm -f /var/log/eggscan-update-latest.log
 sudo rm -rf /var/lib/eggscan/
+sudo rm -f /run/eggscan-update.lock
 sudo systemctl daemon-reload
 sudo systemctl reset-failed
 ```

@@ -2,7 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.9.0] - 2026-08-20
+
+### Added
+  -  Automatic fresh-install and upgrade support for Fedora and compatible DNF-based RHEL-family systems.
+  -  About page web updater support for the same DNF-based systems.
+
+### Changed
+  -  Installer now selects distribution-specific packages through `apt-get` or `dnf`.
+  -  Installer now validates required commands, systemd availability and Python 3.9 or newer before installing EggScan.
+  -  EggScan systemd units are managed in `/etc/systemd/system`, with superseded `/lib` or `/usr/lib` copies removed during upgrades.
+
+### Fixed
+  -  Updater modal now reports installation failures without incorrectly saying that the updater could not be started.
 
 ## [1.8.2] - 2026-07-25
 

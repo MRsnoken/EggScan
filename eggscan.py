@@ -351,14 +351,15 @@ TRANSLATIONS = {
         "ABOUT_UPDATER_STARTING": "Startar updateraren...",
         "ABOUT_UPDATER_STARTED": "Updateraren startades. Följ statusen nedan.",
         "ABOUT_UPDATER_RUNNING": "Updateraren kör. Status och logg uppdateras automatiskt.",
-        "ABOUT_UPDATER_PLATFORM_NOTE": "Webbuppdateraren stöder Debian-, Ubuntu- och Raspberry Pi OS-baserade system med systemd.",
+        "ABOUT_UPDATER_PLATFORM_NOTE": "Webbuppdateraren stöder systemd-system baserade på Debian/Ubuntu eller Fedora/RHEL.",
         "ABOUT_UPDATER_PLATFORM_UNSUPPORTED": "Webbuppdateraren är inaktiverad på detta system.",
         "ABOUT_UPDATER_PLATFORM_DETECTED": "Upptäckt system",
-        "ABOUT_UPDATER_UNSUPPORTED_START": "Webbuppdateraren är bara tillgänglig på Debian-, Ubuntu- och Raspberry Pi OS-baserade system med systemd.",
+        "ABOUT_UPDATER_UNSUPPORTED_START": "Webbuppdateraren kräver ett systemd-system baserat på Debian/Ubuntu eller Fedora/RHEL med en pakethanterare som stöds.",
         "ABOUT_UPDATER_MODAL_TITLE": "Uppdaterar EggScan",
         "ABOUT_UPDATER_MODAL_CLOSE": "Stäng och ladda om",
         "ABOUT_UPDATER_MODAL_WAIT": "Knappen aktiveras när uppdateringen är klar.",
         "ABOUT_UPDATER_START_ERROR": "Kunde inte starta updateraren.",
+        "ABOUT_UPDATER_FAILED_HINT": "Uppdateringen misslyckades. Kontrollera meddelandet och den senaste loggen för detaljer.",
         "ABOUT_UPDATER_CONFIRM": "Starta uppdatering från senaste GitHub-release?",
         "ABOUT_UPDATER_STATE": "Status",
         "ABOUT_UPDATER_MESSAGE": "Meddelande",
@@ -722,14 +723,15 @@ TRANSLATIONS = {
         "ABOUT_UPDATER_STARTING": "Starting updater...",
         "ABOUT_UPDATER_STARTED": "Updater started. Follow the status below.",
         "ABOUT_UPDATER_RUNNING": "Updater is running. Status and log output refresh automatically.",
-        "ABOUT_UPDATER_PLATFORM_NOTE": "The web updater supports Debian, Ubuntu and Raspberry Pi OS based systems with systemd.",
+        "ABOUT_UPDATER_PLATFORM_NOTE": "The web updater supports Debian/Ubuntu and Fedora/RHEL based systems with systemd.",
         "ABOUT_UPDATER_PLATFORM_UNSUPPORTED": "The web updater is disabled on this system.",
         "ABOUT_UPDATER_PLATFORM_DETECTED": "Detected system",
-        "ABOUT_UPDATER_UNSUPPORTED_START": "The web updater is only available on Debian, Ubuntu and Raspberry Pi OS based systems with systemd.",
+        "ABOUT_UPDATER_UNSUPPORTED_START": "The web updater requires a Debian/Ubuntu or Fedora/RHEL based system with systemd and a supported package manager.",
         "ABOUT_UPDATER_MODAL_TITLE": "Updating EggScan",
         "ABOUT_UPDATER_MODAL_CLOSE": "Close and reload",
         "ABOUT_UPDATER_MODAL_WAIT": "The button is enabled when the update is complete.",
         "ABOUT_UPDATER_START_ERROR": "Could not start the updater.",
+        "ABOUT_UPDATER_FAILED_HINT": "The update failed. Check the message and latest log for details.",
         "ABOUT_UPDATER_CONFIRM": "Start update from the latest GitHub release?",
         "ABOUT_UPDATER_STATE": "Status",
         "ABOUT_UPDATER_MESSAGE": "Message",
@@ -1557,8 +1559,16 @@ def get_updater_platform_info() -> dict:
     os_family.update(part for part in os_like.replace(",", " ").split() if part)
 
     debian_based = bool({"debian", "ubuntu"} & os_family)
+    dnf_based = bool({"fedora", "rhel", "centos"} & os_family)
+    apt_available = executable_exists(("/usr/bin/apt-get", "/bin/apt-get"))
+    dnf_available = executable_exists(("/usr/bin/dnf", "/bin/dnf"))
     systemctl_available = executable_exists(("/usr/bin/systemctl", "/bin/systemctl"))
-    supported = debian_based and systemctl_available
+    package_manager = ""
+    if debian_based and apt_available:
+        package_manager = "apt"
+    elif dnf_based and dnf_available:
+        package_manager = "dnf"
+    supported = bool(package_manager) and systemctl_available
     label = (
         str(os_release.get("PRETTY_NAME", "")).strip()
         or str(os_release.get("NAME", "")).strip()
@@ -1569,6 +1579,8 @@ def get_updater_platform_info() -> dict:
     return {
         "supported": supported,
         "debian_based": debian_based,
+        "dnf_based": dnf_based,
+        "package_manager": package_manager,
         "systemctl_available": systemctl_available,
         "label": label,
     }
