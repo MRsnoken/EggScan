@@ -105,6 +105,15 @@
           {{ t("SCAN_UPDATE_BUTTON") }}
         </button>
 
+        {% if current_user.is_admin %}
+          <button
+            type="button"
+            id="deviceCsvExportButton"
+            class="btn btn-outline-info btn-sm ml-2"
+            data-url="{{ url_for('export_devices_csv') }}"
+          >{{ t("EXPORT_DEVICES_CSV") }}</button>
+        {% endif %}
+
         <input type="hidden" name="sort" value="{{ sort_field }}">
         <input type="hidden" name="dir" value="{{ sort_dir }}">
 
@@ -207,6 +216,19 @@
           </div>
         </div>
       </div>
+
+      {% if current_user.is_admin and stale_known_review_count > 0 %}
+        <button
+          type="button"
+          class="stale-review-notice mb-3"
+          data-toggle="modal"
+          data-target="#staleKnownReviewModal"
+          aria-label="{{ t('STALE_REVIEW_MODAL_TITLE') }}"
+        >
+          <span>{{ t("STALE_REVIEW_NOTICE") }}</span>
+          <span class="badge badge-warning ml-2">{{ stale_known_review_count }}</span>
+        </button>
+      {% endif %}
 
       <div class="status-bar">
         <div class="status-item">
@@ -425,7 +447,7 @@
 
                     <td class="align-middle">
                       {% if current_user.is_admin %}
-                        <div class="d-flex">
+                        <div class="d-flex flex-wrap">
                           {% if dev.is_new %}
                             <button
                               type="button"
@@ -436,7 +458,16 @@
                             </button>
                           {% endif %}
 
-                          <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
+                          {% if presence_history_enabled and not dev.is_new %}
+                            <button
+                              type="button"
+                              class="btn btn-outline-info btn-sm mr-1 mb-1 js-presence-history"
+                              data-device-id="{{ dev.id }}"
+                              title="{{ t('PRESENCE_HISTORY_MODAL_TITLE') }}"
+                            >{{ t("PRESENCE_HISTORY_ACTION") }}</button>
+                          {% endif %}
+
+                          <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}" class="mb-1">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
                               {{ t("DELETE") }}
@@ -549,7 +580,7 @@
 
                   <td class="align-middle">
                     {% if current_user.is_admin %}
-                      <div class="d-flex">
+                      <div class="d-flex flex-wrap">
                         {% if dev.is_new %}
                           <button
                             type="button"
@@ -560,7 +591,16 @@
                           </button>
                         {% endif %}
 
-                        <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}">
+                        {% if presence_history_enabled and not dev.is_new %}
+                          <button
+                            type="button"
+                            class="btn btn-outline-info btn-sm mr-1 mb-1 js-presence-history"
+                            data-device-id="{{ dev.id }}"
+                            title="{{ t('PRESENCE_HISTORY_MODAL_TITLE') }}"
+                          >{{ t("PRESENCE_HISTORY_ACTION") }}</button>
+                        {% endif %}
+
+                        <form method="POST" action="{{ url_for('delete_device', device_id=dev.id) }}" class="mb-1">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           <button type="submit" onclick="return confirm('{{ t("CONFIRM_DELETE") }}')" class="btn btn-danger btn-sm">
                             {{ t("DELETE") }}
@@ -600,10 +640,41 @@
               </div>
 
               {% if new_device_review_devices|length > 0 %}
+                {% if current_user.is_admin %}
+                  <form
+                    method="POST"
+                    action="{{ url_for('new_devices_bulk') }}"
+                    id="newDevicesBulkForm"
+                    class="stale-review-bulk-toolbar mb-3"
+                    data-delete-confirm="{{ t('NEW_DEVICES_BULK_DELETE_CONFIRM') }}"
+                  >
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="custom-control custom-checkbox mr-3 mb-2 mb-md-0">
+                      <input type="checkbox" class="custom-control-input" id="newDevicesSelectAll">
+                      <label class="custom-control-label" for="newDevicesSelectAll">{{ t("NEW_DEVICES_SELECT_ALL") }}</label>
+                    </div>
+                    <span
+                      id="newDevicesSelectedCount"
+                      class="stale-review-selected-count mr-md-auto mb-2 mb-md-0"
+                      data-label-template="{{ t('NEW_DEVICES_SELECTED_COUNT') }}"
+                    >{{ t("NEW_DEVICES_SELECTED_COUNT").format(count=0) }}</span>
+                    <div class="d-flex flex-wrap stale-review-bulk-buttons">
+                      <button type="submit" name="action" value="mark_known" class="btn btn-sm btn-outline-warning mr-1 mb-1 js-new-devices-bulk-action" disabled>
+                        {{ t("NEW_DEVICES_BULK_MARK_KNOWN") }}
+                      </button>
+                      <button type="submit" name="action" value="delete" class="btn btn-sm btn-danger mb-1 js-new-devices-bulk-action" data-bulk-delete="1" disabled>
+                        {{ t("NEW_DEVICES_BULK_DELETE") }}
+                      </button>
+                    </div>
+                  </form>
+                {% endif %}
                 <div class="table-responsive" id="newDevicesModalTableWrap">
                   <table class="table table-sm mb-0 table-theme new-devices-review-table">
                     <thead>
                       <tr>
+                        {% if current_user.is_admin %}
+                          <th class="stale-review-select-column"><span class="sr-only">{{ t("NEW_DEVICES_SELECT_DEVICE") }}</span></th>
+                        {% endif %}
                         <th>{{ t("TABLE_IP") }}</th>
                         <th>{{ t("TABLE_MAC") }}</th>
                         <th>{{ t("TABLE_ALIAS") }}</th>
@@ -629,6 +700,20 @@
                             data-device-id="{{ dev.id }}"
                             data-is-new="{{ '1' if dev.is_new else '0' }}"
                           >
+                            {% if current_user.is_admin %}
+                              <td class="align-middle stale-review-select-column">
+                                {% if dev.is_new %}
+                                  <input
+                                    type="checkbox"
+                                    class="new-device-review-checkbox"
+                                    name="device_ids"
+                                    value="{{ dev.id }}"
+                                    form="newDevicesBulkForm"
+                                    aria-label="{{ t('NEW_DEVICES_SELECT_DEVICE') }}: {{ dev.alias or dev.mac_address or dev.id }}"
+                                  >
+                                {% endif %}
+                              </td>
+                            {% endif %}
                             <td class="align-middle">
                               {% if dev.ip_address and dev.ip_address != "-" %}
                                 {% set modal_ip_list = dev.ip_address.split(",") %}
@@ -701,6 +786,177 @@
           </div>
         </div>
       </div>
+
+      {% if current_user.is_admin %}
+        <div class="modal fade" id="staleKnownReviewModal" tabindex="-1" role="dialog" aria-labelledby="staleKnownReviewModalLabel" aria-hidden="true">
+          <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title text-dark" id="staleKnownReviewModalLabel">{{ t("STALE_REVIEW_MODAL_TITLE") }}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+              </div>
+              <div class="modal-body">
+                <p class="text-muted mb-3">{{ t("STALE_REVIEW_MODAL_HINT") }}</p>
+
+                {% if stale_known_review_devices|length == 0 %}
+                  <div class="text-muted text-center py-3">{{ t("STALE_REVIEW_MODAL_EMPTY") }}</div>
+                {% else %}
+                  <form
+                    method="POST"
+                    action="{{ url_for('stale_known_review_bulk') }}"
+                    id="staleReviewBulkForm"
+                    class="stale-review-bulk-toolbar mb-3"
+                    data-delete-confirm="{{ t('STALE_REVIEW_BULK_DELETE_CONFIRM') }}"
+                  >
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="custom-control custom-checkbox mr-3 mb-2 mb-md-0">
+                      <input type="checkbox" class="custom-control-input" id="staleReviewSelectAll">
+                      <label class="custom-control-label" for="staleReviewSelectAll">{{ t("STALE_REVIEW_SELECT_ALL") }}</label>
+                    </div>
+                    <span
+                      id="staleReviewSelectedCount"
+                      class="stale-review-selected-count mr-md-auto mb-2 mb-md-0"
+                      data-label-template="{{ t('STALE_REVIEW_SELECTED_COUNT') }}"
+                    >{{ t("STALE_REVIEW_SELECTED_COUNT").format(count=0) }}</span>
+                    <div class="d-flex flex-wrap stale-review-bulk-buttons">
+                      <button type="submit" name="action" value="keep" class="btn btn-sm btn-outline-primary mr-1 mb-1 js-stale-review-bulk-action" disabled>
+                        {{ t("STALE_REVIEW_BULK_KEEP") }}
+                      </button>
+                      <button type="submit" name="action" value="keep_always" class="btn btn-sm btn-outline-success mr-1 mb-1 js-stale-review-bulk-action" disabled>
+                        {{ t("STALE_REVIEW_BULK_KEEP_ALWAYS") }}
+                      </button>
+                      <button type="submit" name="action" value="delete" class="btn btn-sm btn-danger mb-1 js-stale-review-bulk-action" data-bulk-delete="1" disabled>
+                        {{ t("STALE_REVIEW_BULK_DELETE") }}
+                      </button>
+                    </div>
+                  </form>
+
+                  <div class="table-responsive">
+                    <table class="table table-sm mb-0 table-theme stale-known-review-table">
+                      <thead>
+                        <tr>
+                          <th class="stale-review-select-column"><span class="sr-only">{{ t("STALE_REVIEW_SELECT_DEVICE") }}</span></th>
+                          <th>{{ t("TABLE_ALIAS") }}</th>
+                          <th>{{ t("TABLE_IP") }}</th>
+                          <th>{{ t("TABLE_MAC") }}</th>
+                          <th>{{ t("TABLE_LAST_SEEN") }}</th>
+                          <th>{{ t("STALE_REVIEW_OFFLINE_FOR") }}</th>
+                          <th>{{ t("TABLE_ACTIONS") }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for item in stale_known_review_devices %}
+                          {% set dev = item.device %}
+                          <tr>
+                            <td class="align-middle stale-review-select-column">
+                              <input
+                                type="checkbox"
+                                class="stale-review-device-checkbox"
+                                name="device_ids"
+                                value="{{ dev.id }}"
+                                form="staleReviewBulkForm"
+                                aria-label="{{ t('STALE_REVIEW_SELECT_DEVICE') }}: {{ dev.alias or dev.mac_address or dev.id }}"
+                              >
+                            </td>
+                            <td class="align-middle">{{ dev.alias or t("ALIAS_NONE") }}</td>
+                            <td class="align-middle">{{ dev.ip_address if dev.ip_address and dev.ip_address != '-' else '-' }}</td>
+                            <td class="align-middle"><code>{{ dev.mac_address or "N/A" }}</code></td>
+                            <td class="align-middle">{{ format_local(dev.last_seen_at, display_tz) }}</td>
+                            <td class="align-middle">{{ item.offline_for }}</td>
+                            <td class="align-middle">
+                              <div class="d-flex flex-wrap stale-review-actions">
+                                <form method="POST" action="{{ url_for('stale_known_review_action', device_id=dev.id, action='keep') }}" class="mb-1 mr-1">
+                                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                  <button type="submit" class="btn btn-sm btn-outline-primary">{{ t("STALE_REVIEW_KEEP") }}</button>
+                                </form>
+                                <form method="POST" action="{{ url_for('stale_known_review_action', device_id=dev.id, action='keep_always') }}" class="mb-1 mr-1">
+                                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                  <button type="submit" class="btn btn-sm btn-outline-success">{{ t("STALE_REVIEW_KEEP_ALWAYS") }}</button>
+                                </form>
+                                <form method="POST" action="{{ url_for('stale_known_review_action', device_id=dev.id, action='delete') }}" class="mb-1">
+                                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                  <button type="submit" onclick="return confirm('{{ t("STALE_REVIEW_DELETE_CONFIRM") }}')" class="btn btn-sm btn-danger">{{ t("DELETE") }}</button>
+                                </form>
+                              </div>
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                {% endif %}
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if presence_history_enabled %}
+        <div
+          class="modal fade"
+          id="presenceHistoryModal"
+          tabindex="-1"
+          role="dialog"
+          aria-labelledby="presenceHistoryModalLabel"
+          aria-hidden="true"
+          data-url="{{ url_for('api_presence_history', device_id=0) }}"
+          data-load-error="{{ t('PRESENCE_HISTORY_LOAD_ERROR') }}"
+        >
+          <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title text-dark" id="presenceHistoryModalLabel">
+                  {{ t("PRESENCE_HISTORY_MODAL_TITLE") }}: <span id="presenceHistoryDeviceLabel"></span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+              </div>
+              <div class="modal-body">
+                <p class="text-muted mb-3">{{ t("PRESENCE_HISTORY_MODAL_HINT") }}</p>
+                <div id="presenceHistoryLoading" class="text-muted py-3">{{ t("PRESENCE_HISTORY_LOADING") }}</div>
+                <div id="presenceHistoryError" class="alert alert-danger" style="display:none;"></div>
+                <div id="presenceHistoryContent" style="display:none;">
+                  <dl class="row presence-history-summary mb-3">
+                    <dt class="col-sm-5">{{ t("PRESENCE_LAST_OBSERVED") }}</dt>
+                    <dd class="col-sm-7" id="presenceLastObserved">-</dd>
+                    <dt class="col-sm-5">{{ t("PRESENCE_OBSERVED_ONLINE") }}</dt>
+                    <dd class="col-sm-7" id="presenceOnlineTime">-</dd>
+                    <dt class="col-sm-5">{{ t("PRESENCE_OBSERVED_OFFLINE") }}</dt>
+                    <dd class="col-sm-7" id="presenceOfflineTime">-</dd>
+                    <dt class="col-sm-5">{{ t("PRESENCE_UNKNOWN_TIME") }}</dt>
+                    <dd class="col-sm-7" id="presenceUnknownTime">-</dd>
+                    <dt class="col-sm-5">{{ t("PRESENCE_OBSERVED_PERCENT") }}</dt>
+                    <dd class="col-sm-7" id="presenceObservedPercent">-</dd>
+                    <dt class="col-sm-5">{{ t("PRESENCE_OFFLINE_EPISODES") }}</dt>
+                    <dd class="col-sm-7" id="presenceOfflineEpisodes">-</dd>
+                    <dt class="col-sm-5">{{ t("PRESENCE_LONGEST_OFFLINE") }}</dt>
+                    <dd class="col-sm-7" id="presenceLongestOffline">-</dd>
+                  </dl>
+                  <div id="presenceHistoryEmpty" class="text-muted text-center py-3" style="display:none;">{{ t("PRESENCE_HISTORY_NO_DATA") }}</div>
+                  <div class="table-responsive" id="presenceHistoryTableWrap">
+                    <table class="table table-sm mb-0 table-theme presence-history-table">
+                      <thead>
+                        <tr>
+                          <th>{{ t("PRESENCE_PERIOD_STATE") }}</th>
+                          <th>{{ t("PRESENCE_PERIOD_FROM") }}</th>
+                          <th>{{ t("PRESENCE_PERIOD_TO") }}</th>
+                          <th>{{ t("PRESENCE_PERIOD_DURATION") }}</th>
+                        </tr>
+                      </thead>
+                      <tbody id="presenceHistoryRows"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
 
       {% for dev in devices %}
 

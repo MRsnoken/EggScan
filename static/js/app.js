@@ -365,10 +365,33 @@ function hookModalCloseForPendingReload() {
   function syncNewDevicesModalEmptyState() {
     var tableWrap = document.getElementById("newDevicesModalTableWrap");
     var empty = document.getElementById("newDevicesModalEmpty");
+    var bulkForm = document.getElementById("newDevicesBulkForm");
     var remaining = document.querySelectorAll(".new-device-review-row").length;
+    var selectable = document.querySelectorAll(".new-device-review-checkbox").length;
 
     if (tableWrap) tableWrap.style.display = remaining > 0 ? "" : "none";
     if (empty) empty.style.display = remaining > 0 ? "none" : "";
+    if (bulkForm) bulkForm.style.display = selectable > 0 ? "" : "none";
+    syncNewDevicesBulkState();
+  }
+
+  function syncNewDevicesBulkState() {
+    var form = document.getElementById("newDevicesBulkForm");
+    if (!form) return;
+
+    var selectAll = document.getElementById("newDevicesSelectAll");
+    var selectedCount = document.getElementById("newDevicesSelectedCount");
+    var checkboxes = Array.from(document.querySelectorAll(".new-device-review-checkbox"));
+    var checked = checkboxes.filter(function (checkbox) { return checkbox.checked; });
+    var actionButtons = Array.from(form.querySelectorAll(".js-new-devices-bulk-action"));
+    var labelTemplate = selectedCount ? (selectedCount.getAttribute("data-label-template") || "{count}") : "";
+
+    if (selectedCount) selectedCount.textContent = labelTemplate.replace("{count}", String(checked.length));
+    actionButtons.forEach(function (button) { button.disabled = checked.length === 0; });
+    if (selectAll) {
+      selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
+      selectAll.indeterminate = checked.length > 0 && checked.length < checkboxes.length;
+    }
   }
 
   function parseFirstInt(text) {
@@ -652,6 +675,337 @@ function hookModalCloseForPendingReload() {
       var cleanUrl = window.location.pathname + (qs ? ("?" + qs) : "") + (window.location.hash || "");
       window.history.replaceState({}, "", cleanUrl);
     }
+  }
+
+  function initAutoOpenStaleKnownReviewModal() {
+    if (!window.URLSearchParams) return;
+
+    var params = new URLSearchParams(window.location.search || "");
+    if (params.get("open_stale_review") !== "1") return;
+
+    var modal = document.getElementById("staleKnownReviewModal");
+    if (modal && window.jQuery && window.jQuery.fn && window.jQuery.fn.modal) {
+      window.jQuery(modal).modal("show");
+    }
+
+    if (window.history && window.history.replaceState) {
+      params.delete("open_stale_review");
+      var qs = params.toString();
+      var cleanUrl = window.location.pathname + (qs ? ("?" + qs) : "") + (window.location.hash || "");
+      window.history.replaceState({}, "", cleanUrl);
+    }
+  }
+
+  function initStaleReviewBulkActions() {
+    var form = document.getElementById("staleReviewBulkForm");
+    if (!form) return;
+
+    var selectAll = document.getElementById("staleReviewSelectAll");
+    var selectedCount = document.getElementById("staleReviewSelectedCount");
+    var checkboxes = Array.from(document.querySelectorAll(".stale-review-device-checkbox"));
+    var actionButtons = Array.from(form.querySelectorAll(".js-stale-review-bulk-action"));
+
+    function checkedBoxes() {
+      return checkboxes.filter(function (checkbox) { return checkbox.checked; });
+    }
+
+    function updateState() {
+      var count = checkedBoxes().length;
+      var labelTemplate = selectedCount ? (selectedCount.getAttribute("data-label-template") || "{count}") : "";
+
+      if (selectedCount) selectedCount.textContent = labelTemplate.replace("{count}", String(count));
+      actionButtons.forEach(function (button) { button.disabled = count === 0; });
+
+      if (selectAll) {
+        selectAll.checked = checkboxes.length > 0 && count === checkboxes.length;
+        selectAll.indeterminate = count > 0 && count < checkboxes.length;
+      }
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener("change", function () {
+        checkboxes.forEach(function (checkbox) { checkbox.checked = selectAll.checked; });
+        updateState();
+      });
+    }
+
+    checkboxes.forEach(function (checkbox) {
+      checkbox.addEventListener("change", updateState);
+    });
+
+    form.addEventListener("submit", function (event) {
+      var count = checkedBoxes().length;
+      var submitter = event.submitter || document.activeElement;
+      if (count === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      if (submitter && submitter.getAttribute("data-bulk-delete") === "1") {
+        var confirmTemplate = form.getAttribute("data-delete-confirm") || "";
+        var confirmText = confirmTemplate.replace("{count}", String(count));
+        if (!window.confirm(confirmText)) event.preventDefault();
+      }
+    });
+
+    updateState();
+  }
+
+  function initNewDevicesBulkActions() {
+    var form = document.getElementById("newDevicesBulkForm");
+    if (!form) return;
+
+    var selectAll = document.getElementById("newDevicesSelectAll");
+    if (selectAll) {
+      selectAll.addEventListener("change", function () {
+        document.querySelectorAll(".new-device-review-checkbox").forEach(function (checkbox) {
+          checkbox.checked = selectAll.checked;
+        });
+        syncNewDevicesBulkState();
+      });
+    }
+
+    document.querySelectorAll(".new-device-review-checkbox").forEach(function (checkbox) {
+      checkbox.addEventListener("change", syncNewDevicesBulkState);
+    });
+
+    form.addEventListener("submit", function (event) {
+      var checkedCount = document.querySelectorAll(".new-device-review-checkbox:checked").length;
+      var submitter = event.submitter || document.activeElement;
+      if (checkedCount === 0) {
+        event.preventDefault();
+        return;
+      }
+      if (submitter && submitter.getAttribute("data-bulk-delete") === "1") {
+        var confirmTemplate = form.getAttribute("data-delete-confirm") || "";
+        if (!window.confirm(confirmTemplate.replace("{count}", String(checkedCount)))) {
+          event.preventDefault();
+        }
+      }
+    });
+
+    syncNewDevicesBulkState();
+  }
+
+  function initStaleUnknownPreview() {
+    var button = document.getElementById("staleUnknownPreviewButton");
+    var modal = document.getElementById("staleUnknownPreviewModal");
+    if (!button || !modal) return;
+
+    var status = document.getElementById("staleUnknownPreviewStatus");
+    var tableWrap = document.getElementById("staleUnknownPreviewTableWrap");
+    var rows = document.getElementById("staleUnknownPreviewRows");
+    var valueInput = document.getElementById("staleUnknownCleanupValue");
+    var unitInput = document.getElementById("staleUnknownCleanupUnit");
+
+    function setStatus(message, isError) {
+      if (!status) return;
+      status.textContent = message || "";
+      status.classList.toggle("text-danger", !!isError);
+      status.classList.toggle("text-muted", !isError);
+      status.style.display = "";
+    }
+
+    function appendCell(row, value, code) {
+      var cell = document.createElement("td");
+      cell.className = "align-middle";
+      if (code) {
+        var codeEl = document.createElement("code");
+        codeEl.textContent = value || "-";
+        cell.appendChild(codeEl);
+      } else {
+        cell.textContent = value || "-";
+      }
+      row.appendChild(cell);
+    }
+
+    button.addEventListener("click", function () {
+      var url = button.getAttribute("data-url");
+      if (!url) return;
+      var originalLabel = button.textContent;
+      var loadingLabel = button.getAttribute("data-loading-label") || originalLabel;
+      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+      var body = new URLSearchParams();
+      body.set("value", valueInput ? valueInput.value : "");
+      body.set("unit", unitInput ? unitInput.value : "days");
+
+      button.disabled = true;
+      button.textContent = loadingLabel;
+      if (rows) rows.innerHTML = "";
+      if (tableWrap) tableWrap.style.display = "none";
+      setStatus(loadingLabel, false);
+      if (window.jQuery && window.jQuery.fn && window.jQuery.fn.modal) {
+        window.jQuery(modal).modal("show");
+      }
+
+      fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "X-CSRF-Token": csrfMeta ? csrfMeta.getAttribute("content") : ""
+        },
+        body: body.toString()
+      })
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            if (!response.ok || !data.ok) throw new Error(data.error || modal.getAttribute("data-error-label") || "Error");
+            return data;
+          });
+        })
+        .then(function (data) {
+          var devices = Array.isArray(data.devices) ? data.devices : [];
+          if (!devices.length) {
+            setStatus(modal.getAttribute("data-empty-label") || "", false);
+            return;
+          }
+
+          devices.forEach(function (device) {
+            var row = document.createElement("tr");
+            appendCell(row, device.ip_address, false);
+            appendCell(row, device.mac_address, true);
+            appendCell(row, device.manufacturer, false);
+            appendCell(row, device.last_seen_at, false);
+            appendCell(row, device.offline_for, false);
+            if (rows) rows.appendChild(row);
+          });
+          setStatus((modal.getAttribute("data-count-label") || "{count}").replace("{count}", String(data.count || devices.length)), false);
+          if (tableWrap) tableWrap.style.display = "";
+        })
+        .catch(function (error) {
+          setStatus(error.message || modal.getAttribute("data-error-label") || "Error", true);
+        })
+        .finally(function () {
+          button.disabled = false;
+          button.textContent = originalLabel;
+        });
+    });
+  }
+
+  function initPresenceHistory() {
+    var modal = document.getElementById("presenceHistoryModal");
+    if (!modal) return;
+
+    var requestNumber = 0;
+    var loading = document.getElementById("presenceHistoryLoading");
+    var errorBox = document.getElementById("presenceHistoryError");
+    var content = document.getElementById("presenceHistoryContent");
+    var empty = document.getElementById("presenceHistoryEmpty");
+    var tableWrap = document.getElementById("presenceHistoryTableWrap");
+    var rows = document.getElementById("presenceHistoryRows");
+
+    function setText(id, value) {
+      var element = document.getElementById(id);
+      if (element) element.textContent = value === undefined || value === null ? "-" : String(value);
+    }
+
+    function resetModal() {
+      if (loading) loading.style.display = "";
+      if (errorBox) {
+        errorBox.style.display = "none";
+        errorBox.textContent = "";
+      }
+      if (content) content.style.display = "none";
+      if (empty) empty.style.display = "none";
+      if (tableWrap) tableWrap.style.display = "none";
+      if (rows) rows.innerHTML = "";
+      setText("presenceHistoryDeviceLabel", "");
+    }
+
+    function buildUrl(deviceId) {
+      var base = modal.getAttribute("data-url") || "";
+      return base.replace(/\/0$/, "/" + String(deviceId));
+    }
+
+    document.addEventListener("click", function (event) {
+      var trigger = event.target && event.target.closest ? event.target.closest(".js-presence-history") : null;
+      if (!trigger) return;
+      event.preventDefault();
+
+      var deviceId = trigger.getAttribute("data-device-id");
+      if (!deviceId) return;
+      requestNumber += 1;
+      var thisRequest = requestNumber;
+      resetModal();
+      if (window.jQuery && window.jQuery.fn && window.jQuery.fn.modal) {
+        window.jQuery(modal).modal("show");
+      }
+
+      fetch(buildUrl(deviceId), {credentials: "same-origin"})
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            if (!response.ok || !data.ok) throw new Error(data.error || modal.getAttribute("data-load-error") || "Error");
+            return data;
+          });
+        })
+        .then(function (data) {
+          if (thisRequest !== requestNumber) return;
+          var summary = data.summary || {};
+          setText("presenceHistoryDeviceLabel", data.device_label || data.mac_address || "-");
+          setText("presenceLastObserved", data.last_observed_at);
+          setText("presenceOnlineTime", summary.online);
+          setText("presenceOfflineTime", summary.offline);
+          setText("presenceUnknownTime", summary.unknown);
+          setText("presenceObservedPercent", summary.observed_percentage);
+          setText("presenceOfflineEpisodes", summary.offline_episodes);
+          setText("presenceLongestOffline", summary.longest_offline);
+
+          var periods = Array.isArray(data.periods) ? data.periods : [];
+          periods.forEach(function (period) {
+            var row = document.createElement("tr");
+            var stateCell = document.createElement("td");
+            var badge = document.createElement("span");
+            badge.className = "presence-state-badge presence-state-" + String(period.state || "unknown");
+            badge.textContent = period.state_label || "-";
+            stateCell.appendChild(badge);
+            row.appendChild(stateCell);
+            [period.started_at, period.ended_at, period.duration].forEach(function (value) {
+              var cell = document.createElement("td");
+              cell.textContent = value || "-";
+              row.appendChild(cell);
+            });
+            if (rows) rows.appendChild(row);
+          });
+
+          if (loading) loading.style.display = "none";
+          if (content) content.style.display = "";
+          if (empty) empty.style.display = periods.length ? "none" : "";
+          if (tableWrap) tableWrap.style.display = periods.length ? "" : "none";
+        })
+        .catch(function (error) {
+          if (thisRequest !== requestNumber) return;
+          if (loading) loading.style.display = "none";
+          if (errorBox) {
+            errorBox.textContent = error.message || modal.getAttribute("data-load-error") || "Error";
+            errorBox.style.display = "";
+          }
+        });
+    });
+  }
+
+  function initDeviceCsvExport() {
+    var button = document.getElementById("deviceCsvExportButton");
+    if (!button) return;
+
+    button.addEventListener("click", function () {
+      var base = button.getAttribute("data-url");
+      if (!base) return;
+      var url = new URL(base, window.location.origin);
+      var search = document.getElementById("liveSearch");
+      var filter = document.getElementById("liveFilter");
+      var sort = document.querySelector('#serverFilterForm input[name="sort"]');
+      var direction = document.querySelector('#serverFilterForm input[name="dir"]');
+      var tags = document.getElementById("quick-tag-filters");
+
+      if (search && search.value.trim()) url.searchParams.set("search", search.value.trim());
+      if (filter && filter.value) url.searchParams.set("filter", filter.value);
+      if (sort && sort.value) url.searchParams.set("sort", sort.value);
+      if (direction && direction.value) url.searchParams.set("dir", direction.value);
+      if (tags && tags.getAttribute("data-active-tag")) {
+        url.searchParams.set("tag", tags.getAttribute("data-active-tag"));
+      }
+      window.location.assign(url.toString());
+    });
   }
 
   function initNewDevicesModalCleanup() {
@@ -1010,7 +1364,13 @@ function hookModalCloseForPendingReload() {
     hookMarkKnownAjax();
     initRelatedModalLinks();
     initAutoOpenNewDevicesModal();
+    initAutoOpenStaleKnownReviewModal();
+    initStaleReviewBulkActions();
+    initNewDevicesBulkActions();
     initNewDevicesModalCleanup();
+    initStaleUnknownPreview();
+    initPresenceHistory();
+    initDeviceCsvExport();
     initTagInputs();
     initQuickTagFilters();
     initFlashAutoDismiss();

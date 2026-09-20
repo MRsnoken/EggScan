@@ -131,6 +131,7 @@ EggScan is **not** intended for:
 - SQLite database storage
 - Runs as two systemd services (web + scan worker)
 - Versioning via `version.json`
+- Local README and changelog viewer on the About page
 - No cloud backend – all scan data stays on your LAN
 - Multi-channel notifications via Apprise (Discord, Telegram, Slack, Email, Teams, Pushover, Gotify, custom URL)
 - Quiet hours with digest summary after quiet period ends
@@ -143,7 +144,11 @@ EggScan is **not** intended for:
 - Upgrade-safe installer with automatic database schema checks<br>
 - Settings search to quickly filter configuration sections
 - One-click admin action to mark all new devices as known
-- New-devices dashboard counter opens a compact review modal with admin actions
+- New-devices dashboard counter opens a compact review modal with individual and bulk admin actions
+- Optional automatic cleanup of stale unknown devices, disabled by default, with a non-destructive candidate preview
+- Optional admin review queue for known devices that have been offline for a chosen period
+- Optional presence history for known devices with observed online/offline periods and configurable retention
+- Admin CSV export for the currently filtered device view
 - Database backup download from the Settings page (admin only)
 - Separated scan worker and web UI for improved stability
  - Production-ready web serving via Gunicorn (systemd)
@@ -208,7 +213,7 @@ Listed in requirements.txt:
 <details>
 <summary><strong> Manual installation </strong> ⬇</summary>
 
-  ```bash
+```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

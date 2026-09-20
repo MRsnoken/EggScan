@@ -792,6 +792,205 @@
         </div>
 
         {# -------------------------
+           DEVICE MAINTENANCE
+        -------------------------- #}
+
+        <div
+          class="settings-search-section"
+          data-settings-search-section
+          data-settings-search="device maintenance cleanup remove delete stale unknown known review offline presence history retention preview csv enhet enheter underhåll rensa ta bort gamla okända kända granska offline närvaro historik lagring förhandsvisa minuter timmar dagar minutes hours days"
+        >
+        <h5 class="mb-3">{{ t("DEVICE_MAINTENANCE_TITLE") }}</h5>
+
+        <div class="mb-4 p-3 border rounded" style="border-color: rgba(255,255,255,0.15) !important;">
+          <div class="d-flex align-items-center mb-2">
+            <span class="mr-2 font-weight-bold">{{ t("STALE_UNKNOWN_CLEANUP_ENABLE") }}</span>
+            <label class="toggle-switch mb-0">
+              <input
+                type="checkbox"
+                name="stale_unknown_cleanup_enabled"
+                form="settingsForm"
+                {% if stale_unknown_cleanup_enabled %}checked{% endif %}
+              >
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <small class="form-text text-muted mb-2">{{ t("STALE_UNKNOWN_CLEANUP_HINT") }}</small>
+          <div class="form-row align-items-end">
+            <div class="form-group col-sm-5 col-md-3 mb-2">
+              <label for="staleUnknownCleanupValue">{{ t("STALE_AFTER_LABEL") }}</label>
+              <input
+                type="number"
+                id="staleUnknownCleanupValue"
+                name="stale_unknown_cleanup_value"
+                form="settingsForm"
+                class="form-control"
+                min="1"
+                max="99999"
+                value="{{ stale_unknown_cleanup_value }}"
+                required
+              >
+            </div>
+            <div class="form-group col-sm-7 col-md-4 mb-2">
+              <label for="staleUnknownCleanupUnit" class="sr-only">{{ t("STALE_AFTER_LABEL") }}</label>
+              <select id="staleUnknownCleanupUnit" name="stale_unknown_cleanup_unit" form="settingsForm" class="form-control">
+                <option value="minutes" {% if stale_unknown_cleanup_unit == 'minutes' %}selected{% endif %}>{{ t("DURATION_UNIT_MINUTES") }}</option>
+                <option value="hours" {% if stale_unknown_cleanup_unit == 'hours' %}selected{% endif %}>{{ t("DURATION_UNIT_HOURS") }}</option>
+                <option value="days" {% if stale_unknown_cleanup_unit == 'days' %}selected{% endif %}>{{ t("DURATION_UNIT_DAYS") }}</option>
+              </select>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-info"
+            id="staleUnknownPreviewButton"
+            data-url="{{ url_for('api_stale_unknown_preview') }}"
+            data-loading-label="{{ t('STALE_PREVIEW_LOADING') }}"
+          >{{ t("STALE_PREVIEW_BUTTON") }}</button>
+
+          <hr class="border-secondary my-3">
+
+          <div class="d-flex align-items-center mb-2">
+            <span class="mr-2 font-weight-bold">{{ t("STALE_KNOWN_REVIEW_ENABLE") }}</span>
+            <label class="toggle-switch mb-0">
+              <input
+                type="checkbox"
+                name="stale_known_review_enabled"
+                form="settingsForm"
+                {% if stale_known_review_enabled %}checked{% endif %}
+              >
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <small class="form-text text-muted mb-2">{{ t("STALE_KNOWN_REVIEW_HINT") }}</small>
+          <div class="form-row align-items-end">
+            <div class="form-group col-sm-5 col-md-3 mb-2">
+              <label for="staleKnownReviewValue">{{ t("STALE_AFTER_LABEL") }}</label>
+              <input
+                type="number"
+                id="staleKnownReviewValue"
+                name="stale_known_review_value"
+                form="settingsForm"
+                class="form-control"
+                min="1"
+                max="99999"
+                value="{{ stale_known_review_value }}"
+                required
+              >
+            </div>
+            <div class="form-group col-sm-7 col-md-4 mb-2">
+              <label for="staleKnownReviewUnit" class="sr-only">{{ t("STALE_AFTER_LABEL") }}</label>
+              <select id="staleKnownReviewUnit" name="stale_known_review_unit" form="settingsForm" class="form-control">
+                <option value="minutes" {% if stale_known_review_unit == 'minutes' %}selected{% endif %}>{{ t("DURATION_UNIT_MINUTES") }}</option>
+                <option value="hours" {% if stale_known_review_unit == 'hours' %}selected{% endif %}>{{ t("DURATION_UNIT_HOURS") }}</option>
+                <option value="days" {% if stale_known_review_unit == 'days' %}selected{% endif %}>{{ t("DURATION_UNIT_DAYS") }}</option>
+              </select>
+            </div>
+          </div>
+
+          {% if stale_review_exempt_count > 0 %}
+            <hr class="border-secondary my-3">
+            <div class="font-weight-bold mb-1">{{ t("STALE_REVIEW_EXCLUSIONS") }}</div>
+            <div class="text-muted mb-2">
+              {{ t("STALE_REVIEW_EXCLUSIONS_HINT") }} {{ stale_review_exempt_count }}
+            </div>
+            <form method="POST" class="mb-0" onsubmit="return confirm('{{ t('STALE_REVIEW_EXCLUSIONS_CONFIRM') }}');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="reset_stale_review_exemptions">
+              <button type="submit" class="btn btn-sm btn-outline-warning">{{ t("STALE_REVIEW_EXCLUSIONS_RESET") }}</button>
+            </form>
+          {% endif %}
+
+          <hr class="border-secondary my-3">
+
+          <div class="d-flex align-items-center mb-2">
+            <span class="mr-2 font-weight-bold">{{ t("PRESENCE_HISTORY_ENABLE") }}</span>
+            <label class="toggle-switch mb-0">
+              <input
+                type="checkbox"
+                name="presence_history_enabled"
+                form="settingsForm"
+                {% if presence_history_enabled %}checked{% endif %}
+              >
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <small class="form-text text-muted mb-2">{{ t("PRESENCE_HISTORY_SETTINGS_HINT") }}</small>
+          <div class="form-row align-items-end">
+            <div class="form-group col-sm-7 col-md-4 mb-2">
+              <label for="presenceHistoryRetention">{{ t("PRESENCE_HISTORY_RETENTION") }}</label>
+              <select
+                id="presenceHistoryRetention"
+                name="presence_history_retention_days"
+                form="settingsForm"
+                class="form-control"
+              >
+                {% for days in presence_retention_choices %}
+                  <option value="{{ days }}" {% if presence_history_retention_days == days %}selected{% endif %}>
+                    {{ t("PRESENCE_HISTORY_RETENTION_DAYS").format(count=days) }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          {% if presence_history_count > 0 %}
+            <div class="d-flex align-items-center flex-wrap mt-1">
+              <span class="text-muted mr-3 mb-2">{{ t("PRESENCE_HISTORY_STORED_COUNT").format(count=presence_history_count) }}</span>
+              <form method="POST" class="mb-2" onsubmit="return confirm('{{ t('PRESENCE_HISTORY_CLEAR_CONFIRM') }}');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="clear_presence_history">
+                <button type="submit" class="btn btn-sm btn-outline-danger">{{ t("PRESENCE_HISTORY_CLEAR") }}</button>
+              </form>
+            </div>
+          {% endif %}
+        </div>
+
+        <div
+          class="modal fade"
+          id="staleUnknownPreviewModal"
+          tabindex="-1"
+          role="dialog"
+          aria-labelledby="staleUnknownPreviewModalLabel"
+          aria-hidden="true"
+          data-count-label="{{ t('STALE_PREVIEW_COUNT') }}"
+          data-empty-label="{{ t('STALE_PREVIEW_EMPTY') }}"
+          data-error-label="{{ t('STALE_PREVIEW_ERROR') }}"
+        >
+          <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title text-dark" id="staleUnknownPreviewModalLabel">{{ t("STALE_PREVIEW_MODAL_TITLE") }}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+              </div>
+              <div class="modal-body">
+                <p class="text-muted mb-3">{{ t("STALE_PREVIEW_MODAL_HINT") }}</p>
+                <div id="staleUnknownPreviewStatus" class="text-muted py-2"></div>
+                <div class="table-responsive" id="staleUnknownPreviewTableWrap" style="display:none;">
+                  <table class="table table-sm mb-0 table-theme">
+                    <thead>
+                      <tr>
+                        <th>{{ t("TABLE_IP") }}</th>
+                        <th>{{ t("TABLE_MAC") }}</th>
+                        <th>{{ t("TABLE_MANUFACTURER") }}</th>
+                        <th>{{ t("TABLE_LAST_SEEN") }}</th>
+                        <th>{{ t("STALE_REVIEW_OFFLINE_FOR") }}</th>
+                      </tr>
+                    </thead>
+                    <tbody id="staleUnknownPreviewRows"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ t("CANCEL") }}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr class="border-secondary">
+        </div>
+
+        {# -------------------------
            OTHER SETTINGS (THEME)
         -------------------------- #}
 

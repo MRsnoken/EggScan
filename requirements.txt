@@ -5,3 +5,4 @@ Flask-Bcrypt
 python-nmap
 gunicorn
 apprise
+Markdown

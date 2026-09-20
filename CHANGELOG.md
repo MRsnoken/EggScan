@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.0] - 2026-09-20
+
+### Added
+  -  Optional automatic cleanup of stale unknown devices after an admin-defined period, disabled by default and only run after successful scans, with a non-destructive candidate preview in Settings.
+  -  Optional admin review queue for known devices that have been offline for a configured period, with individual and bulk actions to keep, permanently exclude or delete devices.
+  -  Optional presence history for known devices, disabled by default, with retained online/offline periods, observed online time, offline statistics and explicit unknown gaps when EggScan could not observe the network.
+  -  Bulk actions in the new-devices review modal to mark selected devices as known or delete them.
+  -  Admin CSV export for the currently filtered device view.
+  -  Local README and changelog viewer on the About page for the installed EggScan version.
+
 ## [1.9.0] - 2026-08-20
 
 ### Added

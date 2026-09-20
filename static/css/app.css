@@ -635,6 +635,42 @@ body.theme-uplink .status-value{
   color: var(--text-0);
 }
 
+.stale-review-notice{
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(250, 204, 21, 0.48);
+  border-radius: 8px;
+  background: rgba(250, 204, 21, 0.10);
+  color: var(--text-0);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stale-review-notice:hover{
+  border-color: rgba(250, 204, 21, 0.78);
+  background: rgba(250, 204, 21, 0.16);
+}
+
+.stale-review-notice:focus{
+  outline: 2px solid rgba(250, 204, 21, 0.7);
+  outline-offset: 2px;
+}
+
+body.theme-light .stale-review-notice{
+  background: rgba(202, 138, 4, 0.08);
+  border-color: rgba(161, 98, 7, 0.42);
+}
+
+body.theme-uplink .stale-review-notice{
+  border-radius: 6px;
+  border-color: rgba(250, 204, 21, 0.42);
+  background: rgba(250, 204, 21, 0.08);
+}
+
 /* =========================================================
    STATUS BAR
    ========================================================= */
@@ -899,6 +935,106 @@ body.theme-uplink .blink-new{
 
 .new-devices-review-table code{
   color: var(--text-0);
+}
+
+.stale-known-review-table code{
+  color: var(--text-0);
+}
+
+.stale-review-actions{
+  min-width: 270px;
+}
+
+.stale-review-bulk-toolbar{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+}
+
+.stale-review-selected-count{
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.stale-review-select-column{
+  width: 42px;
+  min-width: 42px;
+  text-align: center;
+}
+
+.stale-review-device-checkbox,
+.new-device-review-checkbox{
+  width: 17px;
+  height: 17px;
+  vertical-align: middle;
+}
+
+.presence-history-summary dt,
+.presence-history-summary dd{
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+  margin-bottom: 0.15rem;
+}
+
+.presence-state-badge{
+  display: inline-block;
+  min-width: 72px;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.presence-state-online{
+  color: #bbf7d0;
+  background: rgba(34,197,94,0.16);
+  border-color: rgba(34,197,94,0.38);
+}
+
+.presence-state-offline{
+  color: #fecaca;
+  background: rgba(239,68,68,0.14);
+  border-color: rgba(239,68,68,0.36);
+}
+
+.presence-state-unknown{
+  color: #e5e7eb;
+  background: rgba(107,114,128,0.18);
+  border-color: rgba(156,163,175,0.34);
+}
+
+body.theme-light .presence-state-online{ color: #166534; }
+body.theme-light .presence-state-offline{ color: #991b1b; }
+body.theme-light .presence-state-unknown{ color: #374151; }
+body:not(.theme-light) .modal-content .presence-state-online{ color: #bbf7d0 !important; }
+body:not(.theme-light) .modal-content .presence-state-offline{ color: #fecaca !important; }
+body:not(.theme-light) .modal-content .presence-state-unknown{ color: #e5e7eb !important; }
+
+body.theme-light .stale-review-bulk-toolbar{
+  background: rgba(0,0,0,0.025);
+}
+
+body.theme-uplink .stale-review-bulk-toolbar{
+  border-radius: 6px;
+  border-color: rgba(74,222,128,0.22);
+  background: rgba(20,83,45,0.14);
+}
+
+@media (max-width: 767.98px){
+  .stale-review-bulk-toolbar{
+    align-items: flex-start;
+  }
+
+  .stale-review-bulk-buttons{
+    flex-basis: 100%;
+  }
 }
 
 /* COSMOS: table head more "space" */
@@ -1368,6 +1504,137 @@ body.page-setup .form-control::placeholder{
   color: var(--text-main);
   font-weight: 800;
   margin-bottom: 10px;
+}
+
+.about-document-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.about-document-modal .modal-dialog {
+  width: calc(100% - 32px);
+  max-width: 1120px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.about-document-modal .modal-content {
+  max-height: calc(100vh - 32px);
+}
+
+.about-document-body {
+  color: var(--text-main);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.about-document-body > :first-child {
+  margin-top: 0;
+}
+
+.about-document-body > :last-child {
+  margin-bottom: 0;
+}
+
+.about-document-body h1,
+.about-document-body h2,
+.about-document-body h3,
+.about-document-body h4,
+.about-document-body h5,
+.about-document-body h6 {
+  color: var(--text-main);
+  letter-spacing: 0;
+  line-height: 1.3;
+  margin-top: 1.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.about-document-body h1 {
+  border-bottom: 1px solid var(--card-border);
+  padding-bottom: 0.45rem;
+  font-size: 1.75rem;
+}
+
+.about-document-body h2 {
+  border-bottom: 1px solid var(--card-border);
+  padding-bottom: 0.35rem;
+  font-size: 1.4rem;
+}
+
+.about-document-body h3 {
+  font-size: 1.15rem;
+}
+
+.about-document-body img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 12px auto;
+  border-radius: 4px;
+}
+
+.about-document-body pre {
+  overflow: auto;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 12px;
+  background: rgba(0,0,0,0.24);
+  color: var(--text-main);
+  white-space: pre;
+}
+
+.about-document-body code {
+  color: inherit;
+}
+
+.about-document-body table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.about-document-body th,
+.about-document-body td {
+  border: 1px solid var(--card-border);
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.about-document-body blockquote {
+  border-left: 4px solid var(--card-border);
+  margin-left: 0;
+  padding-left: 14px;
+  color: var(--muted);
+}
+
+.about-document-body details {
+  border-top: 1px solid var(--card-border);
+  border-bottom: 1px solid var(--card-border);
+  padding: 10px 0;
+  margin: 12px 0;
+}
+
+.about-document-body summary {
+  cursor: pointer;
+  color: var(--text-main);
+}
+
+.about-document-status {
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 12px;
+  color: var(--muted);
+  background: rgba(255,255,255,0.035);
+}
+
+.about-document-status.is-error {
+  border-color: rgba(220,53,69,0.4);
+  color: #d9485f;
+  background: rgba(220,53,69,0.1);
 }
 
 .about-table th {

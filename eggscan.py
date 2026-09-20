@@ -15,12 +15,14 @@ import argparse
 import tempfile
 import sqlite3
 import io
+import csv
 import pwd
 import grp
 import urllib.error
 import urllib.request
 
 import apprise
+import markdown
 
 from flask import (
     Flask, render_template, redirect, url_for, request, flash,
@@ -54,6 +56,10 @@ SECRET_FILE = os.path.join(BASE_DIR, "secret_key.txt")
 DB_FILE = os.path.join(BASE_DIR, "eggscan.db")
 GITHUB_REPO_URL = "https://github.com/MRsnoken/EggScan"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/MRsnoken/EggScan/releases/latest"
+ABOUT_DOCUMENT_FILES = {
+    "readme": "README.md",
+    "changelog": "CHANGELOG.md",
+}
 UPDATE_CHECK_TIMEOUT_SECONDS = 6
 UPDATE_CHECK_CACHE_SECONDS = 600
 UPDATE_STATUS_FILE = "/var/lib/eggscan/update_status.json"
@@ -177,6 +183,8 @@ class Device(db.Model):
     last_seen_at = db.Column(db.DateTime, nullable=True)  # UTC-naive
     is_new = db.Column(db.Boolean, default=False)
     last_subnet_id = db.Column(db.Integer, nullable=True)
+    stale_reviewed_at = db.Column(db.DateTime, nullable=True)
+    stale_review_exempt = db.Column(db.Boolean, nullable=False, default=False)
 
 
 class SubNetwork(db.Model):
@@ -233,6 +241,20 @@ class AlertLog(db.Model):
     dedupe_key = db.Column(db.String(200), nullable=True, unique=True, index=True)
 
 
+class DevicePresencePeriod(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.Integer, nullable=False, index=True)
+    state = db.Column(db.String(10), nullable=False)
+    started_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    last_observed_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    scan_id = db.Column(db.String(36), nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_presence_device_started", "device_id", "started_at"),
+    )
+
+
 from sqlalchemy import text
 
 def ensure_db_schema():
@@ -261,6 +283,14 @@ def ensure_db_schema():
 
         if not has_column("device", "tags"):
             db.session.execute(text("ALTER TABLE device ADD COLUMN tags TEXT;"))
+
+        if not has_column("device", "stale_reviewed_at"):
+            db.session.execute(text("ALTER TABLE device ADD COLUMN stale_reviewed_at DATETIME;"))
+
+        if not has_column("device", "stale_review_exempt"):
+            db.session.execute(text(
+                "ALTER TABLE device ADD COLUMN stale_review_exempt BOOLEAN NOT NULL DEFAULT 0;"
+            ))
 
         try:
             db.session.execute(text("SELECT 1 FROM device_alert LIMIT 1;"))
@@ -332,6 +362,13 @@ TRANSLATIONS = {
         "ABOUT_PYTHON": "Python",
         "ABOUT_SQLITE": "SQLite",
         "ABOUT_NOT_AVAILABLE": "Ej tillgängligt",
+        "ABOUT_DOCUMENTATION_TITLE": "Dokumentation",
+        "ABOUT_DOCUMENTATION_HINT": "Läs dokumenten som hör till den installerade versionen.",
+        "ABOUT_DOCUMENT_README": "README",
+        "ABOUT_DOCUMENT_CHANGELOG": "Ändringslogg",
+        "ABOUT_DOCUMENT_CLOSE": "Stäng",
+        "ABOUT_DOCUMENT_LOADING": "Läser dokument...",
+        "ABOUT_DOCUMENT_UNAVAILABLE": "Dokumentet kunde inte läsas från installationen.",
         "ABOUT_SERVICE_NOTE": "Uppdatering körs via installeraren och systemd; admin kan starta den härifrån.",
         "ABOUT_UPDATE_TITLE": "Uppdateringar",
         "ABOUT_UPDATE_HINT": "Kontrollerar senaste publicerade GitHub-release.",
@@ -401,6 +438,7 @@ TRANSLATIONS = {
         "SORT_UPDATED": "Uppdaterad",
         "SCAN_NOW": "Skanna nu",
         "BACKUP_DB": "Backup databas",
+        "EXPORT_DEVICES_CSV": "Exportera CSV",
         "CONFIG_SNAPSHOT_TITLE": "Inställnings-snapshot",
         "CONFIG_SNAPSHOT_HINT": "Exportera/importera bara konfiguration (inte hela databasen).",
         "CONFIG_SNAPSHOT_SAVES": "Sparas: inställningar, notifieringskonfiguration, tysta tider, tema/språk, subnät och snabbtaggar.",
@@ -433,6 +471,58 @@ TRANSLATIONS = {
         "DEVICE_KNOWN": "Känd",
         "NEW_DEVICES_MODAL_TITLE": "Nya enheter",
         "NEW_DEVICES_MODAL_EMPTY": "Inga nya enheter.",
+        "NEW_DEVICES_SELECT_ALL": "Välj alla",
+        "NEW_DEVICES_SELECT_DEVICE": "Välj enhet",
+        "NEW_DEVICES_SELECTED_COUNT": "Valda: {count}",
+        "NEW_DEVICES_BULK_MARK_KNOWN": "Markera valda som kända",
+        "NEW_DEVICES_BULK_DELETE": "Ta bort valda",
+        "NEW_DEVICES_BULK_DELETE_CONFIRM": "Ta bort {count} valda nya enheter permanent?",
+        "STALE_REVIEW_NOTICE": "Kända enheter att granska",
+        "STALE_REVIEW_MODAL_TITLE": "Granska kända enheter",
+        "STALE_REVIEW_MODAL_HINT": "Dessa kända enheter har varit offline längre än den valda tiden. Ingen av dem tas bort automatiskt.",
+        "STALE_REVIEW_MODAL_EMPTY": "Inga kända enheter behöver granskas just nu.",
+        "STALE_REVIEW_OFFLINE_FOR": "Offline i",
+        "STALE_REVIEW_KEEP": "Behåll tills vidare",
+        "STALE_REVIEW_KEEP_ALWAYS": "Behåll alltid",
+        "STALE_REVIEW_DELETE_CONFIRM": "Ta bort den här kända enheten permanent?",
+        "STALE_REVIEW_SELECT_ALL": "Välj alla",
+        "STALE_REVIEW_SELECT_DEVICE": "Välj enhet",
+        "STALE_REVIEW_SELECTED_COUNT": "Valda: {count}",
+        "STALE_REVIEW_BULK_KEEP": "Behåll valda",
+        "STALE_REVIEW_BULK_KEEP_ALWAYS": "Behåll alltid valda",
+        "STALE_REVIEW_BULK_DELETE": "Ta bort valda",
+        "STALE_REVIEW_BULK_DELETE_CONFIRM": "Ta bort {count} valda kända enheter permanent?",
+        "ELAPSED_DAYS": "{value} dagar",
+        "ELAPSED_HOURS": "{value} timmar",
+        "ELAPSED_MINUTES": "{value} minuter",
+        "PRESENCE_HISTORY_ACTION": "Närvaro",
+        "PRESENCE_HISTORY_MODAL_TITLE": "Närvarohistorik",
+        "PRESENCE_HISTORY_MODAL_HINT": "Visar observerad närvaro från slutförda skanningar sedan funktionen aktiverades. Tid före aktiveringen kan inte återskapas och värdena är inte garanterad drifttid.",
+        "PRESENCE_HISTORY_LOADING": "Hämtar närvarohistorik...",
+        "PRESENCE_HISTORY_LOAD_ERROR": "Kunde inte hämta närvarohistoriken.",
+        "PRESENCE_HISTORY_DISABLED": "Närvarohistorik är inte aktiverad.",
+        "PRESENCE_HISTORY_NO_DATA": "Ingen närvarohistorik finns ännu.",
+        "PRESENCE_LAST_OBSERVED": "Senast observerad",
+        "PRESENCE_OBSERVED_ONLINE": "Observerad onlinetid",
+        "PRESENCE_OBSERVED_OFFLINE": "Observerad offlinetid",
+        "PRESENCE_UNKNOWN_TIME": "Okänd tid",
+        "PRESENCE_OBSERVED_PERCENT": "Observerad närvaro",
+        "PRESENCE_OFFLINE_EPISODES": "Offlineperioder",
+        "PRESENCE_LONGEST_OFFLINE": "Längsta offlineperiod",
+        "PRESENCE_PERIOD_STATE": "Läge",
+        "PRESENCE_PERIOD_FROM": "Från",
+        "PRESENCE_PERIOD_TO": "Till",
+        "PRESENCE_PERIOD_DURATION": "Varaktighet",
+        "PRESENCE_PERIOD_ONGOING": "Pågående",
+        "PRESENCE_STATE_ONLINE": "Online",
+        "PRESENCE_STATE_OFFLINE": "Offline",
+        "PRESENCE_STATE_UNKNOWN": "Okänd",
+        "PRESENCE_DURATION_ZERO": "0 min",
+        "PRESENCE_DURATION_UNDER_MINUTE": "< 1 min",
+        "PRESENCE_DURATION_MINUTES": "{minutes} min",
+        "PRESENCE_DURATION_HOURS_MINUTES": "{hours} h {minutes} min",
+        "PRESENCE_DURATION_DAYS_HOURS": "{days} d {hours} h",
+        "PRESENCE_PERCENT_VALUE": "{value} %",
         "DELETE": "Ta bort",
         "ALIAS_MODAL_TITLE": "Uppdatera Alias",
         "ALIAS_LABEL": "Alias",
@@ -504,6 +594,34 @@ TRANSLATIONS = {
         "CONFIG_SCAN_INTERVAL": "Skanningsintervall (minuter):",
         "CONFIG_HIGHLIGHT_NEW": "Nya/okända enheter blinkar",
         "CONFIG_IPV6_UTILS": "IPv6-interface (t.ex. eth0):",
+        "DEVICE_MAINTENANCE_TITLE": "Enhetsunderhåll",
+        "STALE_UNKNOWN_CLEANUP_ENABLE": "Ta automatiskt bort gamla okända enheter",
+        "STALE_UNKNOWN_CLEANUP_HINT": "Körs bara efter en lyckad skanning. Kända enheter samt okända enheter med alias, anteckningar, taggar eller enhetsnotifieringar skyddas alltid.",
+        "STALE_PREVIEW_BUTTON": "Förhandsvisa",
+        "STALE_PREVIEW_MODAL_TITLE": "Enheter som skulle tas bort",
+        "STALE_PREVIEW_MODAL_HINT": "Förhandsvisningen använder tiden som står i formuläret och ändrar ingenting.",
+        "STALE_PREVIEW_EMPTY": "Inga enheter matchar villkoren.",
+        "STALE_PREVIEW_COUNT": "Matchande enheter: {count}",
+        "STALE_PREVIEW_LOADING": "Kontrollerar enheter...",
+        "STALE_PREVIEW_ERROR": "Kunde inte skapa förhandsvisningen.",
+        "STALE_PREVIEW_SCAN_RUNNING": "Vänta tills den pågående skanningen är klar.",
+        "STALE_KNOWN_REVIEW_ENABLE": "Visa gamla kända enheter för granskning",
+        "STALE_KNOWN_REVIEW_HINT": "Visar en adminlänk på översikten när kända enheter varit offline längre än vald tid. De tas aldrig bort automatiskt.",
+        "STALE_AFTER_LABEL": "Efter",
+        "DURATION_UNIT_MINUTES": "Minuter",
+        "DURATION_UNIT_HOURS": "Timmar",
+        "DURATION_UNIT_DAYS": "Dagar",
+        "STALE_REVIEW_EXCLUSIONS": "Enheter som alltid ska behållas",
+        "STALE_REVIEW_EXCLUSIONS_HINT": "Antal enheter undantagna från framtida granskning:",
+        "STALE_REVIEW_EXCLUSIONS_RESET": "Återställ undantag",
+        "STALE_REVIEW_EXCLUSIONS_CONFIRM": "Låt alla permanent undantagna enheter kunna visas för granskning igen?",
+        "PRESENCE_HISTORY_ENABLE": "Spara närvarohistorik för kända enheter",
+        "PRESENCE_HISTORY_SETTINGS_HINT": "Avstängd som standard. Historiken börjar vid den första slutförda skanningen efter aktivering; tidigare närvaro kan inte återskapas. Endast lägesbyten sparas och längre observationsavbrott markeras som okänd tid.",
+        "PRESENCE_HISTORY_RETENTION": "Behåll historik",
+        "PRESENCE_HISTORY_RETENTION_DAYS": "{count} dagar",
+        "PRESENCE_HISTORY_STORED_COUNT": "Sparade närvaroperioder: {count}",
+        "PRESENCE_HISTORY_CLEAR": "Rensa historik",
+        "PRESENCE_HISTORY_CLEAR_CONFIRM": "Rensa all sparad närvarohistorik?",
         "CONFIG_SAVE_BUTTON": "Spara",
 
         "FLASH_SETUP_USER_PASS_REQUIRED": "Användarnamn och lösenord krävs.",
@@ -528,6 +646,19 @@ TRANSLATIONS = {
         "FLASH_DELETE_ADMIN_ONLY": "Endast admin kan ta bort enheter!",
         "FLASH_DEVICE_DELETED": "Enhet raderad!",
         "FLASH_DEVICE_NOT_FOUND": "Enheten kunde inte hittas.",
+        "FLASH_STALE_REVIEW_DEFERRED": "Enheten behålls och visas tidigast igen efter nästa granskningsperiod.",
+        "FLASH_STALE_REVIEW_EXEMPT": "Enheten undantas från framtida granskning.",
+        "FLASH_STALE_REVIEW_EXCLUSIONS_RESET": "{count} granskningsundantag återställdes.",
+        "FLASH_STALE_REVIEW_INVALID_ACTION": "Ogiltig granskningsåtgärd.",
+        "FLASH_STALE_REVIEW_NONE_SELECTED": "Välj minst en enhet.",
+        "FLASH_STALE_REVIEW_BULK_DEFERRED": "{count} enheter behålls tills vidare.",
+        "FLASH_STALE_REVIEW_BULK_EXEMPT": "{count} enheter undantogs från framtida granskning.",
+        "FLASH_STALE_REVIEW_BULK_DELETED": "{count} enheter raderades.",
+        "FLASH_NEW_DEVICES_BULK_INVALID_ACTION": "Ogiltig massåtgärd för nya enheter.",
+        "FLASH_NEW_DEVICES_BULK_NONE_SELECTED": "Välj minst en ny enhet.",
+        "FLASH_NEW_DEVICES_BULK_MARKED_KNOWN": "{count} valda enheter markerades som kända.",
+        "FLASH_NEW_DEVICES_BULK_DELETED": "{count} valda nya enheter raderades.",
+        "FLASH_PRESENCE_HISTORY_CLEARED": "Närvarohistoriken rensades ({count} perioder).",
         "FLASH_USER_ADDED": "Användare tillagd!",
         "FLASH_USER_DELETED": "Användare raderad!",
         "FLASH_USER_DELETE_FAIL": "Kunde inte radera (user ej funnen eller är admin).",
@@ -551,6 +682,19 @@ TRANSLATIONS = {
         "FLASH_AJAX_MARK_KNOWN_FAIL": "Kunde inte markera enheten som känd.",
         "FLASH_AJAX_SUBNET_ORDER_FAIL": "Kunde inte spara subnätsordning.",
         "FLASH_AJAX_SCAN_STATUS_FAIL": "Kunde inte hämta skanningsstatus. Uppdatera sidan.",
+
+        "CSV_HEADER_IP": "IP",
+        "CSV_HEADER_MAC": "MAC",
+        "CSV_HEADER_ALIAS": "Alias",
+        "CSV_HEADER_MANUFACTURER": "Tillverkare",
+        "CSV_HEADER_STATUS": "Status",
+        "CSV_HEADER_LAST_SEEN": "Senast sedd",
+        "CSV_HEADER_TAGS": "Taggar",
+        "CSV_HEADER_NOTES": "Anteckningar",
+        "CSV_HEADER_SUBNET": "Subnät",
+        "CSV_HEADER_DEVICE_STATE": "Enhetstyp",
+        "CSV_DEVICE_STATE_NEW": "Ny",
+        "CSV_DEVICE_STATE_KNOWN": "Känd",
 
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Endast admin kan ändra tillverkare!",
         "FLASH_MANUFACTURER_UPDATED": "Tillverkare uppdaterad!",
@@ -704,6 +848,13 @@ TRANSLATIONS = {
         "ABOUT_PYTHON": "Python",
         "ABOUT_SQLITE": "SQLite",
         "ABOUT_NOT_AVAILABLE": "Not available",
+        "ABOUT_DOCUMENTATION_TITLE": "Documentation",
+        "ABOUT_DOCUMENTATION_HINT": "Read the documents included with the installed version.",
+        "ABOUT_DOCUMENT_README": "README",
+        "ABOUT_DOCUMENT_CHANGELOG": "Changelog",
+        "ABOUT_DOCUMENT_CLOSE": "Close",
+        "ABOUT_DOCUMENT_LOADING": "Loading document...",
+        "ABOUT_DOCUMENT_UNAVAILABLE": "The document could not be read from the installation.",
         "ABOUT_SERVICE_NOTE": "Updates run through the installer and systemd; admins can start them from here.",
         "ABOUT_UPDATE_TITLE": "Updates",
         "ABOUT_UPDATE_HINT": "Checks the latest published GitHub release.",
@@ -773,6 +924,7 @@ TRANSLATIONS = {
         "SORT_UPDATED": "Updated",
         "SCAN_NOW": "Scan now",
         "BACKUP_DB": "Backup database",
+        "EXPORT_DEVICES_CSV": "Export CSV",
         "CONFIG_SNAPSHOT_TITLE": "Config snapshot",
         "CONFIG_SNAPSHOT_HINT": "Export/import configuration only (not the full database).",
         "CONFIG_SNAPSHOT_SAVES": "Saved: settings, notification config, quiet hours, theme/language, subnets, and quick tags.",
@@ -805,6 +957,58 @@ TRANSLATIONS = {
         "DEVICE_KNOWN": "Known",
         "NEW_DEVICES_MODAL_TITLE": "New devices",
         "NEW_DEVICES_MODAL_EMPTY": "No new devices.",
+        "NEW_DEVICES_SELECT_ALL": "Select all",
+        "NEW_DEVICES_SELECT_DEVICE": "Select device",
+        "NEW_DEVICES_SELECTED_COUNT": "Selected: {count}",
+        "NEW_DEVICES_BULK_MARK_KNOWN": "Mark selected as known",
+        "NEW_DEVICES_BULK_DELETE": "Delete selected",
+        "NEW_DEVICES_BULK_DELETE_CONFIRM": "Permanently delete {count} selected new devices?",
+        "STALE_REVIEW_NOTICE": "Known devices to review",
+        "STALE_REVIEW_MODAL_TITLE": "Review known devices",
+        "STALE_REVIEW_MODAL_HINT": "These known devices have been offline longer than the selected period. None of them are deleted automatically.",
+        "STALE_REVIEW_MODAL_EMPTY": "No known devices need review right now.",
+        "STALE_REVIEW_OFFLINE_FOR": "Offline for",
+        "STALE_REVIEW_KEEP": "Keep for now",
+        "STALE_REVIEW_KEEP_ALWAYS": "Always keep",
+        "STALE_REVIEW_DELETE_CONFIRM": "Permanently delete this known device?",
+        "STALE_REVIEW_SELECT_ALL": "Select all",
+        "STALE_REVIEW_SELECT_DEVICE": "Select device",
+        "STALE_REVIEW_SELECTED_COUNT": "Selected: {count}",
+        "STALE_REVIEW_BULK_KEEP": "Keep selected",
+        "STALE_REVIEW_BULK_KEEP_ALWAYS": "Always keep selected",
+        "STALE_REVIEW_BULK_DELETE": "Delete selected",
+        "STALE_REVIEW_BULK_DELETE_CONFIRM": "Permanently delete {count} selected known devices?",
+        "ELAPSED_DAYS": "{value} days",
+        "ELAPSED_HOURS": "{value} hours",
+        "ELAPSED_MINUTES": "{value} minutes",
+        "PRESENCE_HISTORY_ACTION": "Presence",
+        "PRESENCE_HISTORY_MODAL_TITLE": "Presence history",
+        "PRESENCE_HISTORY_MODAL_HINT": "Shows observed presence from completed scans since the feature was enabled. Time before activation cannot be reconstructed, and the values are not guaranteed uptime.",
+        "PRESENCE_HISTORY_LOADING": "Loading presence history...",
+        "PRESENCE_HISTORY_LOAD_ERROR": "Could not load presence history.",
+        "PRESENCE_HISTORY_DISABLED": "Presence history is not enabled.",
+        "PRESENCE_HISTORY_NO_DATA": "No presence history is available yet.",
+        "PRESENCE_LAST_OBSERVED": "Last observed",
+        "PRESENCE_OBSERVED_ONLINE": "Observed online time",
+        "PRESENCE_OBSERVED_OFFLINE": "Observed offline time",
+        "PRESENCE_UNKNOWN_TIME": "Unknown time",
+        "PRESENCE_OBSERVED_PERCENT": "Observed presence",
+        "PRESENCE_OFFLINE_EPISODES": "Offline periods",
+        "PRESENCE_LONGEST_OFFLINE": "Longest offline period",
+        "PRESENCE_PERIOD_STATE": "State",
+        "PRESENCE_PERIOD_FROM": "From",
+        "PRESENCE_PERIOD_TO": "To",
+        "PRESENCE_PERIOD_DURATION": "Duration",
+        "PRESENCE_PERIOD_ONGOING": "Ongoing",
+        "PRESENCE_STATE_ONLINE": "Online",
+        "PRESENCE_STATE_OFFLINE": "Offline",
+        "PRESENCE_STATE_UNKNOWN": "Unknown",
+        "PRESENCE_DURATION_ZERO": "0 min",
+        "PRESENCE_DURATION_UNDER_MINUTE": "< 1 min",
+        "PRESENCE_DURATION_MINUTES": "{minutes} min",
+        "PRESENCE_DURATION_HOURS_MINUTES": "{hours} h {minutes} min",
+        "PRESENCE_DURATION_DAYS_HOURS": "{days} d {hours} h",
+        "PRESENCE_PERCENT_VALUE": "{value}%",
         "DELETE": "Delete",
         "ALIAS_MODAL_TITLE": "Update Alias",
         "ALIAS_LABEL": "Alias",
@@ -876,6 +1080,34 @@ TRANSLATIONS = {
         "CONFIG_SCAN_INTERVAL": "Scan interval (minutes):",
         "CONFIG_HIGHLIGHT_NEW": "New/unknown devices blink",
         "CONFIG_IPV6_UTILS": "IPv6 interface (e.g. eth0):",
+        "DEVICE_MAINTENANCE_TITLE": "Device maintenance",
+        "STALE_UNKNOWN_CLEANUP_ENABLE": "Automatically remove stale unknown devices",
+        "STALE_UNKNOWN_CLEANUP_HINT": "Runs only after a successful scan. Known devices and unknown devices with an alias, notes, tags or device alerts are always protected.",
+        "STALE_PREVIEW_BUTTON": "Preview",
+        "STALE_PREVIEW_MODAL_TITLE": "Devices that would be removed",
+        "STALE_PREVIEW_MODAL_HINT": "The preview uses the duration currently shown in the form and changes nothing.",
+        "STALE_PREVIEW_EMPTY": "No devices match the conditions.",
+        "STALE_PREVIEW_COUNT": "Matching devices: {count}",
+        "STALE_PREVIEW_LOADING": "Checking devices...",
+        "STALE_PREVIEW_ERROR": "Could not create the preview.",
+        "STALE_PREVIEW_SCAN_RUNNING": "Wait until the current scan has finished.",
+        "STALE_KNOWN_REVIEW_ENABLE": "Show stale known devices for review",
+        "STALE_KNOWN_REVIEW_HINT": "Shows an admin link on the dashboard when known devices have been offline longer than the selected period. They are never removed automatically.",
+        "STALE_AFTER_LABEL": "After",
+        "DURATION_UNIT_MINUTES": "Minutes",
+        "DURATION_UNIT_HOURS": "Hours",
+        "DURATION_UNIT_DAYS": "Days",
+        "STALE_REVIEW_EXCLUSIONS": "Devices that should always be kept",
+        "STALE_REVIEW_EXCLUSIONS_HINT": "Devices excluded from future review:",
+        "STALE_REVIEW_EXCLUSIONS_RESET": "Reset exclusions",
+        "STALE_REVIEW_EXCLUSIONS_CONFIRM": "Allow all permanently excluded devices to appear for review again?",
+        "PRESENCE_HISTORY_ENABLE": "Store presence history for known devices",
+        "PRESENCE_HISTORY_SETTINGS_HINT": "Disabled by default. History starts with the first completed scan after activation; earlier presence cannot be reconstructed. Only state changes are stored, and longer observation gaps are marked as unknown time.",
+        "PRESENCE_HISTORY_RETENTION": "Keep history",
+        "PRESENCE_HISTORY_RETENTION_DAYS": "{count} days",
+        "PRESENCE_HISTORY_STORED_COUNT": "Stored presence periods: {count}",
+        "PRESENCE_HISTORY_CLEAR": "Clear history",
+        "PRESENCE_HISTORY_CLEAR_CONFIRM": "Clear all stored presence history?",
         "CONFIG_SAVE_BUTTON": "Save",
 
         "FLASH_SETUP_USER_PASS_REQUIRED": "Username and password are required.",
@@ -900,6 +1132,19 @@ TRANSLATIONS = {
         "FLASH_DELETE_ADMIN_ONLY": "Only admin can delete devices!",
         "FLASH_DEVICE_DELETED": "Device deleted!",
         "FLASH_DEVICE_NOT_FOUND": "Device could not be found.",
+        "FLASH_STALE_REVIEW_DEFERRED": "The device is kept and will not appear again until another full review period has passed.",
+        "FLASH_STALE_REVIEW_EXEMPT": "The device is excluded from future review.",
+        "FLASH_STALE_REVIEW_EXCLUSIONS_RESET": "{count} review exclusions were reset.",
+        "FLASH_STALE_REVIEW_INVALID_ACTION": "Invalid review action.",
+        "FLASH_STALE_REVIEW_NONE_SELECTED": "Select at least one device.",
+        "FLASH_STALE_REVIEW_BULK_DEFERRED": "{count} devices were kept for now.",
+        "FLASH_STALE_REVIEW_BULK_EXEMPT": "{count} devices were excluded from future review.",
+        "FLASH_STALE_REVIEW_BULK_DELETED": "{count} devices were deleted.",
+        "FLASH_NEW_DEVICES_BULK_INVALID_ACTION": "Invalid bulk action for new devices.",
+        "FLASH_NEW_DEVICES_BULK_NONE_SELECTED": "Select at least one new device.",
+        "FLASH_NEW_DEVICES_BULK_MARKED_KNOWN": "{count} selected devices were marked as known.",
+        "FLASH_NEW_DEVICES_BULK_DELETED": "{count} selected new devices were deleted.",
+        "FLASH_PRESENCE_HISTORY_CLEARED": "Presence history was cleared ({count} periods).",
         "FLASH_USER_ADDED": "User added!",
         "FLASH_USER_DELETED": "User deleted!",
         "FLASH_USER_DELETE_FAIL": "Could not delete user (not found or is admin).",
@@ -923,6 +1168,19 @@ TRANSLATIONS = {
         "FLASH_AJAX_MARK_KNOWN_FAIL": "Could not mark device as known.",
         "FLASH_AJAX_SUBNET_ORDER_FAIL": "Could not save subnet order.",
         "FLASH_AJAX_SCAN_STATUS_FAIL": "Could not fetch scan status. Refresh the page.",
+
+        "CSV_HEADER_IP": "IP",
+        "CSV_HEADER_MAC": "MAC",
+        "CSV_HEADER_ALIAS": "Alias",
+        "CSV_HEADER_MANUFACTURER": "Manufacturer",
+        "CSV_HEADER_STATUS": "Status",
+        "CSV_HEADER_LAST_SEEN": "Last seen",
+        "CSV_HEADER_TAGS": "Tags",
+        "CSV_HEADER_NOTES": "Notes",
+        "CSV_HEADER_SUBNET": "Subnet",
+        "CSV_HEADER_DEVICE_STATE": "Device state",
+        "CSV_DEVICE_STATE_NEW": "New",
+        "CSV_DEVICE_STATE_KNOWN": "Known",
 
         "FLASH_MANUFACTURER_ADMIN_ONLY": "Only admin can change manufacturer!",
         "FLASH_MANUFACTURER_UPDATED": "Manufacturer updated!",
@@ -1108,6 +1366,403 @@ def get_int_setting(key, default_value):
         return int(v)
     except Exception:
         return int(default_value)
+
+
+STALE_DURATION_UNITS = {
+    "minutes": 60,
+    "hours": 60 * 60,
+    "days": 24 * 60 * 60,
+}
+STALE_UNKNOWN_DEFAULT_VALUE = 30
+STALE_KNOWN_DEFAULT_VALUE = 90
+PRESENCE_RETENTION_CHOICES = (30, 90, 365)
+PRESENCE_RETENTION_DEFAULT_DAYS = 90
+
+
+def normalize_stale_duration(value, unit, default_value: int) -> tuple[int, str]:
+    try:
+        normalized_value = int(str(value).strip())
+    except Exception:
+        normalized_value = default_value
+
+    if normalized_value <= 0:
+        normalized_value = default_value
+    normalized_value = min(normalized_value, 99999)
+
+    normalized_unit = str(unit or "").strip().lower()
+    if normalized_unit not in STALE_DURATION_UNITS:
+        normalized_unit = "days"
+
+    return normalized_value, normalized_unit
+
+
+def get_stale_duration(setting_prefix: str, default_value: int) -> datetime.timedelta:
+    value, unit = normalize_stale_duration(
+        get_setting(f"{setting_prefix}_value", str(default_value)),
+        get_setting(f"{setting_prefix}_unit", "days"),
+        default_value,
+    )
+    return datetime.timedelta(seconds=value * STALE_DURATION_UNITS[unit])
+
+
+def normalize_presence_retention_days(value) -> int:
+    try:
+        days = int(str(value).strip())
+    except Exception:
+        days = PRESENCE_RETENTION_DEFAULT_DAYS
+    if days not in PRESENCE_RETENTION_CHOICES:
+        days = PRESENCE_RETENTION_DEFAULT_DAYS
+    return days
+
+
+def format_elapsed_duration(since_utc: Optional[datetime.datetime]) -> str:
+    if not since_utc:
+        return "-"
+
+    elapsed_seconds = max(0, int((utc_now() - since_utc).total_seconds()))
+    elapsed_minutes = max(1, elapsed_seconds // 60)
+    if elapsed_minutes >= 24 * 60:
+        return tf("ELAPSED_DAYS", value=elapsed_minutes // (24 * 60))
+    if elapsed_minutes >= 60:
+        return tf("ELAPSED_HOURS", value=elapsed_minutes // 60)
+    return tf("ELAPSED_MINUTES", value=elapsed_minutes)
+
+
+def delete_device_records(dev: Device) -> None:
+    device_id = dev.id
+    mac = str(dev.mac_address or "").strip().lower()
+
+    DeviceSubnetSeen.query.filter_by(device_id=device_id).delete(synchronize_session=False)
+    DeviceAlert.query.filter_by(device_id=device_id).delete(synchronize_session=False)
+    DevicePresencePeriod.query.filter_by(device_id=device_id).delete(synchronize_session=False)
+
+    if mac:
+        AlertLog.query.filter(
+            db.func.lower(AlertLog.mac_address) == mac,
+            AlertLog.alert_type.in_(["new_device", "new_device_subnet"]),
+        ).delete(synchronize_session=False)
+
+    AlertLog.query.filter_by(device_id=device_id).update(
+        {AlertLog.device_id: None},
+        synchronize_session=False,
+    )
+    db.session.delete(dev)
+
+
+def get_stale_unknown_cleanup_candidates(
+    current_scan_id: str,
+    duration: Optional[datetime.timedelta] = None,
+) -> list[Device]:
+    effective_duration = duration or get_stale_duration(
+        "stale_unknown_cleanup",
+        STALE_UNKNOWN_DEFAULT_VALUE,
+    )
+    cutoff = utc_now() - effective_duration
+    candidates = Device.query.filter(
+        Device.is_new.is_(True),
+        Device.last_seen_at.isnot(None),
+        Device.last_seen_at <= cutoff,
+        db.or_(
+            Device.last_seen_scan != current_scan_id,
+            Device.last_seen_scan.is_(None),
+        ),
+    ).all()
+
+    configured_alert_ids = {
+        row[0]
+        for row in db.session.query(DeviceAlert.device_id).all()
+    }
+    eligible = []
+    for dev in candidates:
+        has_user_data = any(
+            str(value or "").strip()
+            for value in (dev.alias, dev.notes, dev.tags)
+        )
+        if has_user_data or dev.id in configured_alert_ids or not dev.mac_address:
+            continue
+        eligible.append(dev)
+
+    return sorted(
+        eligible,
+        key=lambda dev: (dev.last_seen_at or datetime.datetime.max, dev.id),
+    )
+
+
+def cleanup_stale_unknown_devices(current_scan_id: str) -> int:
+    if not get_bool_setting("stale_unknown_cleanup_enabled", False):
+        return 0
+
+    try:
+        candidates = get_stale_unknown_cleanup_candidates(current_scan_id)
+        for dev in candidates:
+            delete_device_records(dev)
+
+        if candidates:
+            db.session.commit()
+            print(f"Stale unknown cleanup removed {len(candidates)} device(s).")
+    except Exception as e:
+        db.session.rollback()
+        print("Stale unknown cleanup error:", e)
+        return 0
+
+    return len(candidates)
+
+
+def get_stale_known_review_devices(current_scan_id: str) -> list[dict]:
+    if not get_bool_setting("stale_known_review_enabled", False):
+        return []
+
+    cutoff = utc_now() - get_stale_duration(
+        "stale_known_review",
+        STALE_KNOWN_DEFAULT_VALUE,
+    )
+    devices = Device.query.filter(
+        Device.is_new.is_(False),
+        Device.stale_review_exempt.is_(False),
+        Device.last_seen_at.isnot(None),
+        Device.last_seen_at <= cutoff,
+        db.or_(
+            Device.last_seen_scan != current_scan_id,
+            Device.last_seen_scan.is_(None),
+        ),
+        db.or_(
+            Device.stale_reviewed_at.is_(None),
+            Device.stale_reviewed_at <= cutoff,
+        ),
+    ).order_by(Device.last_seen_at.asc(), Device.id.asc()).all()
+
+    return [
+        {
+            "device": dev,
+            "offline_for": format_elapsed_duration(dev.last_seen_at),
+        }
+        for dev in devices
+    ]
+
+
+def format_duration_seconds(total_seconds: float) -> str:
+    seconds = max(0, int(total_seconds or 0))
+    if seconds == 0:
+        return t("PRESENCE_DURATION_ZERO")
+    if seconds < 60:
+        return t("PRESENCE_DURATION_UNDER_MINUTE")
+
+    total_minutes = seconds // 60
+    days, remainder_minutes = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(remainder_minutes, 60)
+    if days:
+        return tf("PRESENCE_DURATION_DAYS_HOURS", days=days, hours=hours)
+    if hours:
+        return tf("PRESENCE_DURATION_HOURS_MINUTES", hours=hours, minutes=minutes)
+    return tf("PRESENCE_DURATION_MINUTES", minutes=minutes)
+
+
+def get_presence_gap_threshold() -> datetime.timedelta:
+    active_interval = get_int_setting(
+        "scan_interval_active",
+        get_int_setting("scan_interval", 5),
+    )
+    active_interval = max(1, active_interval)
+    return datetime.timedelta(minutes=max(15, active_interval * 3))
+
+
+def prune_presence_history(now_utc: Optional[datetime.datetime] = None) -> int:
+    now_value = now_utc or utc_now()
+    retention_days = normalize_presence_retention_days(
+        get_setting("presence_history_retention_days", str(PRESENCE_RETENTION_DEFAULT_DAYS))
+    )
+    cutoff = now_value - datetime.timedelta(days=retention_days)
+    return DevicePresencePeriod.query.filter(
+        DevicePresencePeriod.ended_at.isnot(None),
+        DevicePresencePeriod.ended_at < cutoff,
+    ).delete(synchronize_session=False)
+
+
+def close_active_presence_periods() -> int:
+    periods = DevicePresencePeriod.query.filter(
+        DevicePresencePeriod.ended_at.is_(None)
+    ).all()
+    for period in periods:
+        period.ended_at = period.last_observed_at or period.started_at or utc_now()
+    return len(periods)
+
+
+def record_presence_history(current_scan_id: str) -> int:
+    if not get_bool_setting("presence_history_enabled", False):
+        return 0
+
+    observed_at = utc_now()
+    gap_threshold = get_presence_gap_threshold()
+    known_devices = Device.query.filter(Device.is_new.is_(False)).all()
+    known_ids = {dev.id for dev in known_devices}
+
+    open_rows = (
+        DevicePresencePeriod.query
+        .filter(
+            DevicePresencePeriod.device_id.in_(known_ids) if known_ids else text("0=1"),
+            DevicePresencePeriod.ended_at.is_(None),
+        )
+        .order_by(DevicePresencePeriod.id.desc())
+        .all()
+    )
+    active_by_device = {}
+    for row in open_rows:
+        if row.device_id in active_by_device:
+            row.ended_at = row.last_observed_at or row.started_at
+            continue
+        active_by_device[row.device_id] = row
+
+    changed = 0
+    try:
+        for dev in known_devices:
+            observed_state = "online" if dev.last_seen_scan == current_scan_id else "offline"
+            active = active_by_device.get(dev.id)
+
+            if active is None:
+                db.session.add(DevicePresencePeriod(
+                    device_id=dev.id,
+                    state=observed_state,
+                    started_at=observed_at,
+                    last_observed_at=observed_at,
+                    scan_id=current_scan_id,
+                ))
+                changed += 1
+                continue
+
+            last_observed = active.last_observed_at or active.started_at
+            if observed_at - last_observed > gap_threshold:
+                active.ended_at = last_observed
+                db.session.add(DevicePresencePeriod(
+                    device_id=dev.id,
+                    state="unknown",
+                    started_at=last_observed,
+                    ended_at=observed_at,
+                    last_observed_at=observed_at,
+                    scan_id=current_scan_id,
+                ))
+                db.session.add(DevicePresencePeriod(
+                    device_id=dev.id,
+                    state=observed_state,
+                    started_at=observed_at,
+                    last_observed_at=observed_at,
+                    scan_id=current_scan_id,
+                ))
+                changed += 2
+                continue
+
+            if active.state != observed_state:
+                active.ended_at = observed_at
+                active.last_observed_at = observed_at
+                db.session.add(DevicePresencePeriod(
+                    device_id=dev.id,
+                    state=observed_state,
+                    started_at=observed_at,
+                    last_observed_at=observed_at,
+                    scan_id=current_scan_id,
+                ))
+                changed += 1
+            else:
+                active.last_observed_at = observed_at
+                active.scan_id = current_scan_id
+
+        prune_presence_history(observed_at)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print("Presence history error:", e)
+        return 0
+
+    return changed
+
+
+def build_presence_history_payload(dev: Device) -> dict:
+    now_value = utc_now()
+    retention_days = normalize_presence_retention_days(
+        get_setting("presence_history_retention_days", str(PRESENCE_RETENTION_DEFAULT_DAYS))
+    )
+    cutoff = now_value - datetime.timedelta(days=retention_days)
+    rows = (
+        DevicePresencePeriod.query
+        .filter(
+            DevicePresencePeriod.device_id == dev.id,
+            db.or_(
+                DevicePresencePeriod.ended_at.is_(None),
+                DevicePresencePeriod.ended_at >= cutoff,
+            ),
+        )
+        .order_by(DevicePresencePeriod.started_at.asc(), DevicePresencePeriod.id.asc())
+        .all()
+    )
+
+    totals = {"online": 0, "offline": 0, "unknown": 0}
+    offline_episodes = 0
+    longest_offline = 0
+    last_observed_at = None
+    period_payloads = []
+    state_labels = {
+        "online": t("PRESENCE_STATE_ONLINE"),
+        "offline": t("PRESENCE_STATE_OFFLINE"),
+        "unknown": t("PRESENCE_STATE_UNKNOWN"),
+    }
+
+    for row in rows:
+        effective_start = max(row.started_at, cutoff)
+        effective_end = row.ended_at or row.last_observed_at or now_value
+        effective_end = min(effective_end, now_value)
+        if effective_end < effective_start:
+            continue
+
+        duration_seconds = int((effective_end - effective_start).total_seconds())
+        state = row.state if row.state in totals else "unknown"
+        totals[state] += duration_seconds
+        if state == "offline":
+            offline_episodes += 1
+            longest_offline = max(longest_offline, duration_seconds)
+
+        if row.last_observed_at and (
+            last_observed_at is None or row.last_observed_at > last_observed_at
+        ):
+            last_observed_at = row.last_observed_at
+
+        period_payloads.append({
+            "state": state,
+            "state_label": state_labels[state],
+            "started_at": format_local(effective_start, get_display_timezone()),
+            "ended_at": (
+                t("PRESENCE_PERIOD_ONGOING")
+                if row.ended_at is None
+                else format_local(effective_end, get_display_timezone())
+            ),
+            "duration": format_duration_seconds(duration_seconds),
+        })
+
+    observed_seconds = totals["online"] + totals["offline"]
+    observed_percentage = None
+    if observed_seconds > 0:
+        observed_percentage = round((totals["online"] / observed_seconds) * 100, 1)
+
+    return {
+        "device_id": dev.id,
+        "device_label": dev.alias or dev.mac_address or str(dev.id),
+        "mac_address": dev.mac_address or "-",
+        "retention_days": retention_days,
+        "last_observed_at": (
+            format_local(last_observed_at, get_display_timezone())
+            if last_observed_at else "-"
+        ),
+        "summary": {
+            "online": format_duration_seconds(totals["online"]),
+            "offline": format_duration_seconds(totals["offline"]),
+            "unknown": format_duration_seconds(totals["unknown"]),
+            "observed_percentage": (
+                tf("PRESENCE_PERCENT_VALUE", value=f"{observed_percentage:.1f}")
+                if observed_percentage is not None else "-"
+            ),
+            "offline_episodes": offline_episodes,
+            "longest_offline": format_duration_seconds(longest_offline),
+        },
+        "periods": list(reversed(period_payloads)),
+    }
 
 
 def get_alert_scope():
@@ -1602,6 +2257,30 @@ def get_about_info() -> dict:
         "python_version": sys.version.split()[0],
         "sqlite_version": sqlite3.sqlite_version,
     }
+
+
+def render_about_document(filename: str) -> Optional[str]:
+    if filename not in ABOUT_DOCUMENT_FILES.values():
+        return None
+
+    path = os.path.join(BASE_DIR, filename)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            source = f.read()
+    except (OSError, UnicodeError):
+        return None
+
+    try:
+        # Python-Markdown needs this marker to parse Markdown inside HTML details blocks.
+        source = source.replace("<details>", '<details markdown="1">')
+        return markdown.markdown(
+            source,
+            extensions=["extra", "sane_lists"],
+            output_format="html5",
+        )
+    except Exception:
+        app.logger.exception("Could not render local document: %s", filename)
+        return None
 
 
 def normalize_release_version(value: str) -> str:
@@ -2866,16 +3545,20 @@ def nmap_scan_and_save():
 
         scan_ips_per_mac: dict[str, set[str]] = {}
         seen_pairs: set[Tuple[int, Optional[int]]] = set()
+        scan_completed_successfully = True
+        successful_ipv4_scans = 0
 
         try:
             DeviceSubnetSeen.query.filter_by(scan_id=current_scan_id).delete()
             db.session.commit()
         except Exception:
             db.session.rollback()
+            scan_completed_successfully = False
 
         for sn in subnets:
             cidr = str(sn.cidr or "").strip()
             if not cidr:
+                scan_completed_successfully = False
                 continue
 
             try:
@@ -2884,13 +3567,16 @@ def nmap_scan_and_save():
                     continue
             except Exception as e:
                 print(f"Invalid CIDR {cidr}: {e}")
+                scan_completed_successfully = False
                 continue
 
             try:
                 scan_output = nmap_ping_scan(nm, cidr)
                 scan_map = scan_output.get("scan", {}) or {}
+                successful_ipv4_scans += 1
             except Exception as e:
                 print(f"Scan error for {cidr}: {e}")
+                scan_completed_successfully = False
                 continue
 
             for host, info in scan_map.items():
@@ -2961,6 +3647,7 @@ def nmap_scan_and_save():
             except Exception as e:
                 print("DB commit error after subnet scan:", e)
                 db.session.rollback()
+                scan_completed_successfully = False
 
         if ipv6_enabled:
             v6_map = discover_ipv6_neighbors()
@@ -3010,6 +3697,7 @@ def nmap_scan_and_save():
             except Exception as e:
                 print("DB commit error after ipv6:", e)
                 db.session.rollback()
+                scan_completed_successfully = False
 
         verify_missing_known_devices(nm, current_scan_id, subnets, scan_ips_per_mac, seen_pairs)
 
@@ -3041,6 +3729,7 @@ def nmap_scan_and_save():
         except Exception as e:
             print("DB commit error updating ip list:", e)
             db.session.rollback()
+            scan_completed_successfully = False
 
         offline_devs = Device.query.filter(Device.last_seen_scan != current_scan_id).all()
         for d in offline_devs:
@@ -3051,6 +3740,7 @@ def nmap_scan_and_save():
         except Exception as e:
             print("DB commit error setting offline ip '-':", e)
             db.session.rollback()
+            scan_completed_successfully = False
 
         if not ipv6_enabled:
             all_devs = Device.query.all()
@@ -3071,6 +3761,7 @@ def nmap_scan_and_save():
             except Exception as e:
                 print("DB commit error stripping ipv6:", e)
                 db.session.rollback()
+                scan_completed_successfully = False
 
        
 
@@ -3081,6 +3772,19 @@ def nmap_scan_and_save():
         except Exception as e:
             print("Alert evaluation error:", e)
         finally:
+            if (
+                scan_completed_successfully
+                and successful_ipv4_scans > 0
+                and scan_ips_per_mac
+            ):
+                try:
+                    record_presence_history(current_scan_id)
+                except Exception as e:
+                    print("Presence history error:", e)
+                try:
+                    cleanup_stale_unknown_devices(current_scan_id)
+                except Exception as e:
+                    print("Stale unknown cleanup error:", e)
             set_settings_bulk({
                 "last_scan_time_utc": utc_now().replace(microsecond=0).isoformat(),
                 "scan_status": "done",
@@ -3279,6 +3983,26 @@ def about():
     )
 
 
+@app.route("/api/about_document/<document_name>", methods=["GET"])
+@login_required
+def api_about_document(document_name: str):
+    filename = ABOUT_DOCUMENT_FILES.get(document_name)
+    if filename is None:
+        abort(404)
+
+    rendered = render_about_document(filename)
+    if rendered is None:
+        return jsonify({
+            "ok": False,
+            "error": t("ABOUT_DOCUMENT_UNAVAILABLE"),
+        }), 404
+
+    return jsonify({
+        "ok": True,
+        "html": rendered,
+    })
+
+
 @app.route("/api/update_check", methods=["GET"])
 @login_required
 def api_update_check():
@@ -3341,6 +4065,62 @@ def api_updater_start():
             "ok": False,
             "error": str(e),
         }), 500
+
+
+@app.route("/api/stale_unknown_preview", methods=["POST"])
+@login_required
+def api_stale_unknown_preview():
+    if not current_user.is_admin:
+        abort(403)
+
+    if get_effective_scan_status() == "running":
+        return jsonify({
+            "ok": False,
+            "error": t("STALE_PREVIEW_SCAN_RUNNING"),
+        }), 409
+
+    value, unit = normalize_stale_duration(
+        request.form.get("value", str(STALE_UNKNOWN_DEFAULT_VALUE)),
+        request.form.get("unit", "days"),
+        STALE_UNKNOWN_DEFAULT_VALUE,
+    )
+    duration = datetime.timedelta(seconds=value * STALE_DURATION_UNITS[unit])
+    current_scan_id = str(get_setting("last_scan_id", ""))
+    candidates = get_stale_unknown_cleanup_candidates(current_scan_id, duration)
+    display_tz = get_display_timezone()
+
+    return jsonify({
+        "ok": True,
+        "count": len(candidates),
+        "devices": [
+            {
+                "id": dev.id,
+                "ip_address": dev.ip_address if dev.ip_address and dev.ip_address != "-" else "-",
+                "mac_address": dev.mac_address or "-",
+                "manufacturer": dev.manufacturer or t("MANUFACTURER_UNKNOWN"),
+                "last_seen_at": format_local(dev.last_seen_at, display_tz),
+                "offline_for": format_elapsed_duration(dev.last_seen_at),
+            }
+            for dev in candidates
+        ],
+    })
+
+
+@app.route("/api/presence_history/<int:device_id>", methods=["GET"])
+@login_required
+def api_presence_history(device_id):
+    if not current_user.is_admin:
+        abort(403)
+    if not get_bool_setting("presence_history_enabled", False):
+        return jsonify({"ok": False, "error": t("PRESENCE_HISTORY_DISABLED")}), 404
+
+    dev = Device.query.get(device_id)
+    if not dev or dev.is_new:
+        return jsonify({"ok": False, "error": t("FLASH_DEVICE_NOT_FOUND")}), 404
+
+    payload = build_presence_history_payload(dev)
+    payload["ok"] = True
+    return jsonify(payload)
 
 
 @app.route("/")
@@ -3531,6 +4311,13 @@ def index():
         dev for dev in devices
         if dev.is_new or (review_device_id is not None and dev.id == review_device_id)
     ]
+    stale_known_review_devices = []
+    if current_user.is_admin:
+        stale_known_review_devices = get_stale_known_review_devices(last_scan_id)
+    presence_history_enabled = (
+        current_user.is_admin
+        and get_bool_setting("presence_history_enabled", False)
+    )
 
     lang = get_language()
     theme = get_theme()
@@ -3568,6 +4355,9 @@ def index():
         offline_devices=offline_devices,
         new_devices=new_devices,
         new_device_review_devices=new_device_review_devices,
+        stale_known_review_devices=stale_known_review_devices,
+        stale_known_review_count=len(stale_known_review_devices),
+        presence_history_enabled=presence_history_enabled,
         review_device_id=review_device_id,
         ipv6_enabled=ipv6_enabled,
         last_scan_time=last_scan_time_local,
@@ -3723,6 +4513,64 @@ def mark_known_all():
     return redirect(url_for("index"))
 
 
+@app.route("/new_devices_bulk", methods=["POST"])
+@login_required
+def new_devices_bulk():
+    if not current_user.is_admin:
+        flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    action = str(request.form.get("action", "")).strip().lower()
+    if action not in {"mark_known", "delete"}:
+        flash(t("FLASH_NEW_DEVICES_BULK_INVALID_ACTION"), "danger")
+        return redirect(url_for("index", open_new_devices=1))
+
+    selected_ids = set()
+    for raw_id in request.form.getlist("device_ids"):
+        try:
+            device_id = int(str(raw_id).strip())
+        except Exception:
+            continue
+        if device_id > 0:
+            selected_ids.add(device_id)
+
+    if not selected_ids:
+        flash(t("FLASH_NEW_DEVICES_BULK_NONE_SELECTED"), "warning")
+        return redirect(url_for("index", open_new_devices=1))
+
+    selected_devices = (
+        Device.query
+        .filter(
+            Device.id.in_(selected_ids),
+            Device.is_new.is_(True),
+        )
+        .order_by(Device.id.asc())
+        .all()
+    )
+    if not selected_devices:
+        flash(t("FLASH_NO_NEW_DEVICES"), "info")
+        return redirect(url_for("index", open_new_devices=1))
+
+    try:
+        if action == "mark_known":
+            for dev in selected_devices:
+                dev.is_new = False
+        else:
+            for dev in selected_devices:
+                delete_device_records(dev)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    count = len(selected_devices)
+    if action == "mark_known":
+        flash(tf("FLASH_NEW_DEVICES_BULK_MARKED_KNOWN", count=count), "success")
+    else:
+        flash(tf("FLASH_NEW_DEVICES_BULK_DELETED", count=count), "success")
+    return redirect(url_for("index", open_new_devices=1))
+
+
 @app.route("/backup_db", methods=["POST"])
 @login_required
 def backup_db():
@@ -3771,6 +4619,128 @@ def backup_db():
         as_attachment=True,
         download_name=fname,
         mimetype="application/octet-stream"
+    )
+
+
+def csv_safe_cell(value) -> str:
+    cell = str(value or "")
+    check_value = cell.lstrip()
+    if check_value and check_value[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
+        return "'" + cell
+    return cell
+
+
+@app.route("/export_devices_csv", methods=["GET"])
+@login_required
+def export_devices_csv():
+    if not current_user.is_admin:
+        abort(403)
+
+    search_q = str(request.args.get("search", "")).strip()
+    filter_mode = str(request.args.get("filter", "both")).strip().lower()
+    selected_tag = str(request.args.get("tag", "")).strip().lower()
+    sort_field = str(request.args.get("sort", "ip")).strip().lower()
+    sort_dir = str(request.args.get("dir", "asc")).strip().lower()
+    if filter_mode not in {"both", "online", "offline"}:
+        filter_mode = "both"
+    if sort_field not in {"ip", "mac", "alias", "manufacturer", "updated", "subnet"}:
+        sort_field = "ip"
+    if sort_dir not in {"asc", "desc"}:
+        sort_dir = "asc"
+
+    last_scan_id = str(get_setting("last_scan_id", ""))
+    query = Device.query
+    if search_q:
+        pattern = f"%{search_q}%"
+        query = query.filter(db.or_(
+            Device.ip_address.ilike(pattern),
+            Device.mac_address.ilike(pattern),
+            Device.alias.ilike(pattern),
+            Device.manufacturer.ilike(pattern),
+            Device.tags.ilike(pattern),
+        ))
+    if filter_mode in {"online", "offline"} and last_scan_id:
+        if filter_mode == "online":
+            query = query.filter(Device.last_seen_scan == last_scan_id)
+        else:
+            query = query.filter(db.or_(
+                Device.last_seen_scan != last_scan_id,
+                Device.last_seen_scan.is_(None),
+            ))
+
+    devices = query.all()
+    if selected_tag:
+        devices = [
+            dev for dev in devices
+            if selected_tag in {tag.lower() for tag in parse_tags(dev.tags or "")}
+        ]
+
+    subnets = SubNetwork.query.all()
+    subnet_map = {
+        sn.id: (sn.label.strip() if sn.label and sn.label.strip() else sn.cidr)
+        for sn in subnets
+    }
+
+    def csv_ip_sort_key(dev: Device):
+        if not dev.ip_address or dev.ip_address == "-":
+            return (999, ipaddress.ip_address("255.255.255.255"))
+        try:
+            ip_obj = ipaddress.ip_address(dev.ip_address.split(",", 1)[0].strip())
+            return (ip_obj.version, ip_obj)
+        except Exception:
+            return (999, ipaddress.ip_address("255.255.255.255"))
+
+    def csv_sort_key(dev: Device):
+        if sort_field == "ip":
+            return csv_ip_sort_key(dev)
+        if sort_field == "mac":
+            return str(dev.mac_address or "").lower()
+        if sort_field == "alias":
+            return str(dev.alias or "").lower()
+        if sort_field == "manufacturer":
+            return str(dev.manufacturer or "").lower()
+        if sort_field == "updated":
+            return dev.updated_at or datetime.datetime(1970, 1, 1)
+        return str(subnet_map.get(dev.last_subnet_id, "")).lower()
+
+    devices.sort(key=csv_sort_key, reverse=(sort_dir == "desc"))
+    display_tz = get_display_timezone()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\r\n")
+    writer.writerow([
+        t("CSV_HEADER_IP"),
+        t("CSV_HEADER_MAC"),
+        t("CSV_HEADER_ALIAS"),
+        t("CSV_HEADER_MANUFACTURER"),
+        t("CSV_HEADER_STATUS"),
+        t("CSV_HEADER_LAST_SEEN"),
+        t("CSV_HEADER_TAGS"),
+        t("CSV_HEADER_NOTES"),
+        t("CSV_HEADER_SUBNET"),
+        t("CSV_HEADER_DEVICE_STATE"),
+    ])
+    for dev in devices:
+        is_online = bool(last_scan_id and dev.last_seen_scan == last_scan_id)
+        writer.writerow([
+            csv_safe_cell("" if dev.ip_address == "-" else dev.ip_address),
+            csv_safe_cell(dev.mac_address),
+            csv_safe_cell(dev.alias),
+            csv_safe_cell(dev.manufacturer),
+            t("PRESENCE_STATE_ONLINE") if is_online else t("PRESENCE_STATE_OFFLINE"),
+            format_local(dev.last_seen_at, display_tz),
+            csv_safe_cell(dev.tags),
+            csv_safe_cell(dev.notes),
+            csv_safe_cell(subnet_map.get(dev.last_subnet_id, "")),
+            t("CSV_DEVICE_STATE_NEW") if dev.is_new else t("CSV_DEVICE_STATE_KNOWN"),
+        ])
+
+    payload = ("\ufeff" + output.getvalue()).encode("utf-8")
+    filename = f"eggscan_devices_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return send_file(
+        io.BytesIO(payload),
+        as_attachment=True,
+        download_name=filename,
+        mimetype="text/csv; charset=utf-8",
     )
 
 
@@ -3837,6 +4807,7 @@ def import_config_snapshot():
         return redirect(url_for("config_eggscan"))
 
     try:
+        presence_history_was_enabled = get_bool_setting("presence_history_enabled", False)
         if not isinstance(data, dict):
             raise ValueError("payload must be an object")
 
@@ -3889,6 +4860,8 @@ def import_config_snapshot():
                 include_key = True
 
             if include_key:
+                if key == "presence_history_retention_days":
+                    value_raw = normalize_presence_retention_days(value_raw)
                 settings_updates[key] = str(value_raw or "")
 
         parsed_subnets = []
@@ -3935,6 +4908,11 @@ def import_config_snapshot():
                     label=sn["label"],
                     sort_order=idx
                 ))
+
+        presence_history_is_enabled = get_bool_setting("presence_history_enabled", False)
+        if presence_history_was_enabled and not presence_history_is_enabled:
+            close_active_presence_periods()
+        prune_presence_history()
 
         db.session.commit()
     except Exception as e:
@@ -4007,26 +4985,116 @@ def delete_device(device_id):
 
     dev = Device.query.get(device_id)
     if dev:
-        mac = (dev.mac_address or "").strip().lower()
-
-        db.session.delete(dev)
+        delete_device_records(dev)
         db.session.commit()
-
-        if mac:
-            try:
-                AlertLog.query.filter(
-                    AlertLog.mac_address == mac,
-                    AlertLog.alert_type.in_(["new_device", "new_device_subnet"])
-                ).delete(synchronize_session=False)
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-
         flash(t("FLASH_DEVICE_DELETED"), "success")
     else:
         flash(t("FLASH_DEVICE_NOT_FOUND"), "warning")
 
     return redirect(url_for("index"))
+
+
+@app.route("/stale_known_review/<int:device_id>/<action>", methods=["POST"])
+@login_required
+def stale_known_review_action(device_id, action):
+    if not current_user.is_admin:
+        flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    if action not in {"keep", "keep_always", "delete"}:
+        flash(t("FLASH_STALE_REVIEW_INVALID_ACTION"), "danger")
+        return redirect(url_for("index", open_stale_review=1))
+
+    last_scan_id = str(get_setting("last_scan_id", ""))
+    candidate_ids = {
+        item["device"].id
+        for item in get_stale_known_review_devices(last_scan_id)
+    }
+    dev = Device.query.get(device_id)
+    if not dev or dev.id not in candidate_ids:
+        flash(t("FLASH_DEVICE_NOT_FOUND"), "warning")
+        return redirect(url_for("index", open_stale_review=1))
+
+    review_time = utc_now()
+    if action == "keep":
+        dev.stale_reviewed_at = review_time
+        flash(t("FLASH_STALE_REVIEW_DEFERRED"), "success")
+    elif action == "keep_always":
+        dev.stale_reviewed_at = review_time
+        dev.stale_review_exempt = True
+        flash(t("FLASH_STALE_REVIEW_EXEMPT"), "success")
+    else:
+        delete_device_records(dev)
+        flash(t("FLASH_DEVICE_DELETED"), "success")
+
+    db.session.commit()
+    return redirect(url_for("index", open_stale_review=1))
+
+
+@app.route("/stale_known_review_bulk", methods=["POST"])
+@login_required
+def stale_known_review_bulk():
+    if not current_user.is_admin:
+        flash(t("FLASH_STATUS_ADMIN_ONLY"), "danger")
+        return redirect(url_for("index"))
+
+    action = str(request.form.get("action", "")).strip().lower()
+    if action not in {"keep", "keep_always", "delete"}:
+        flash(t("FLASH_STALE_REVIEW_INVALID_ACTION"), "danger")
+        return redirect(url_for("index", open_stale_review=1))
+
+    selected_ids = set()
+    for raw_id in request.form.getlist("device_ids"):
+        try:
+            device_id = int(str(raw_id).strip())
+        except Exception:
+            continue
+        if device_id > 0:
+            selected_ids.add(device_id)
+
+    if not selected_ids:
+        flash(t("FLASH_STALE_REVIEW_NONE_SELECTED"), "warning")
+        return redirect(url_for("index", open_stale_review=1))
+
+    last_scan_id = str(get_setting("last_scan_id", ""))
+    candidate_map = {
+        item["device"].id: item["device"]
+        for item in get_stale_known_review_devices(last_scan_id)
+    }
+    selected_devices = [
+        candidate_map[device_id]
+        for device_id in sorted(selected_ids)
+        if device_id in candidate_map
+    ]
+
+    if not selected_devices:
+        flash(t("FLASH_DEVICE_NOT_FOUND"), "warning")
+        return redirect(url_for("index", open_stale_review=1))
+
+    review_time = utc_now()
+    try:
+        for dev in selected_devices:
+            if action == "keep":
+                dev.stale_reviewed_at = review_time
+            elif action == "keep_always":
+                dev.stale_reviewed_at = review_time
+                dev.stale_review_exempt = True
+            else:
+                delete_device_records(dev)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    count = len(selected_devices)
+    if action == "keep":
+        flash(tf("FLASH_STALE_REVIEW_BULK_DEFERRED", count=count), "success")
+    elif action == "keep_always":
+        flash(tf("FLASH_STALE_REVIEW_BULK_EXEMPT", count=count), "success")
+    else:
+        flash(tf("FLASH_STALE_REVIEW_BULK_DELETED", count=count), "success")
+
+    return redirect(url_for("index", open_stale_review=1))
 
 
 @app.route("/manage_users", methods=["GET", "POST"])
@@ -4110,11 +5178,52 @@ def config_eggscan():
                 else:
                     flash(tf("FLASH_GUESSED_SUBNET_EXISTS", cidr=guessed), "warning")
 
+        elif action == "reset_stale_review_exemptions":
+            reset_count = Device.query.filter(
+                Device.stale_review_exempt.is_(True)
+            ).update({
+                Device.stale_review_exempt: False,
+                Device.stale_reviewed_at: None,
+            }, synchronize_session=False)
+            db.session.commit()
+            flash(tf("FLASH_STALE_REVIEW_EXCLUSIONS_RESET", count=reset_count), "success")
+
+        elif action == "clear_presence_history":
+            deleted_count = DevicePresencePeriod.query.delete(synchronize_session=False)
+            db.session.commit()
+            flash(tf("FLASH_PRESENCE_HISTORY_CLEARED", count=deleted_count), "success")
+
         elif action == "update_settings":
             ipv6 = (request.form.get("ipv6") == "on")
             scan_interval = request.form.get("scan_interval", "5").strip()
             highlight_new = (request.form.get("highlight_new") == "on")
             ipv6_utils = request.form.get("ipv6_utils", "").strip()
+            stale_unknown_cleanup_enabled = (
+                request.form.get("stale_unknown_cleanup_enabled") == "on"
+            )
+            stale_unknown_cleanup_value, stale_unknown_cleanup_unit = normalize_stale_duration(
+                request.form.get("stale_unknown_cleanup_value", str(STALE_UNKNOWN_DEFAULT_VALUE)),
+                request.form.get("stale_unknown_cleanup_unit", "days"),
+                STALE_UNKNOWN_DEFAULT_VALUE,
+            )
+            stale_known_review_enabled = (
+                request.form.get("stale_known_review_enabled") == "on"
+            )
+            stale_known_review_value, stale_known_review_unit = normalize_stale_duration(
+                request.form.get("stale_known_review_value", str(STALE_KNOWN_DEFAULT_VALUE)),
+                request.form.get("stale_known_review_unit", "days"),
+                STALE_KNOWN_DEFAULT_VALUE,
+            )
+            presence_history_was_enabled = get_bool_setting("presence_history_enabled", False)
+            presence_history_enabled = (
+                request.form.get("presence_history_enabled") == "on"
+            )
+            presence_history_retention_days = normalize_presence_retention_days(
+                request.form.get(
+                    "presence_history_retention_days",
+                    str(PRESENCE_RETENTION_DEFAULT_DAYS),
+                )
+            )
 
             display_timezone = request.form.get("display_timezone", "").strip()
 
@@ -4290,6 +5399,14 @@ def config_eggscan():
                 "display_timezone": display_timezone,
                 "new_device_alert_mode": new_device_alert_mode,
                 "new_device_alert_subnets": ",".join([str(x) for x in sorted(set(subnet_ids))]),
+                "stale_unknown_cleanup_enabled": "true" if stale_unknown_cleanup_enabled else "false",
+                "stale_unknown_cleanup_value": str(stale_unknown_cleanup_value),
+                "stale_unknown_cleanup_unit": stale_unknown_cleanup_unit,
+                "stale_known_review_enabled": "true" if stale_known_review_enabled else "false",
+                "stale_known_review_value": str(stale_known_review_value),
+                "stale_known_review_unit": stale_known_review_unit,
+                "presence_history_enabled": "true" if presence_history_enabled else "false",
+                "presence_history_retention_days": str(presence_history_retention_days),
             }
 
             if language in ("sv", "en"):
@@ -4310,6 +5427,10 @@ def config_eggscan():
                     continue
                 new_label = new_label.strip()
                 sn.label = new_label if new_label else None
+
+            if presence_history_was_enabled and not presence_history_enabled:
+                close_active_presence_periods()
+            prune_presence_history()
 
             if alert_scope == "selected":
                 enabled_ids = set()
@@ -4421,6 +5542,26 @@ def config_eggscan():
 
     new_device_alert_mode = get_new_device_alert_mode()
     new_device_alert_subnets = get_new_device_alert_subnet_ids()
+    stale_unknown_cleanup_enabled = get_bool_setting("stale_unknown_cleanup_enabled", False)
+    stale_unknown_cleanup_value, stale_unknown_cleanup_unit = normalize_stale_duration(
+        get_setting("stale_unknown_cleanup_value", str(STALE_UNKNOWN_DEFAULT_VALUE)),
+        get_setting("stale_unknown_cleanup_unit", "days"),
+        STALE_UNKNOWN_DEFAULT_VALUE,
+    )
+    stale_known_review_enabled = get_bool_setting("stale_known_review_enabled", False)
+    stale_known_review_value, stale_known_review_unit = normalize_stale_duration(
+        get_setting("stale_known_review_value", str(STALE_KNOWN_DEFAULT_VALUE)),
+        get_setting("stale_known_review_unit", "days"),
+        STALE_KNOWN_DEFAULT_VALUE,
+    )
+    stale_review_exempt_count = Device.query.filter(
+        Device.stale_review_exempt.is_(True)
+    ).count()
+    presence_history_enabled = get_bool_setting("presence_history_enabled", False)
+    presence_history_retention_days = normalize_presence_retention_days(
+        get_setting("presence_history_retention_days", str(PRESENCE_RETENTION_DEFAULT_DAYS))
+    )
+    presence_history_count = DevicePresencePeriod.query.count()
 
     return render_template(
         "config.html",
@@ -4464,6 +5605,17 @@ def config_eggscan():
         timezones=timezones,
         new_device_alert_mode=new_device_alert_mode,
         new_device_alert_subnets=new_device_alert_subnets,
+        stale_unknown_cleanup_enabled=stale_unknown_cleanup_enabled,
+        stale_unknown_cleanup_value=stale_unknown_cleanup_value,
+        stale_unknown_cleanup_unit=stale_unknown_cleanup_unit,
+        stale_known_review_enabled=stale_known_review_enabled,
+        stale_known_review_value=stale_known_review_value,
+        stale_known_review_unit=stale_known_review_unit,
+        stale_review_exempt_count=stale_review_exempt_count,
+        presence_history_enabled=presence_history_enabled,
+        presence_history_retention_days=presence_history_retention_days,
+        presence_retention_choices=PRESENCE_RETENTION_CHOICES,
+        presence_history_count=presence_history_count,
     )
 
 

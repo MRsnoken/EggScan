@@ -27,6 +27,37 @@
           <div class="text-muted">{{ t("ABOUT_SERVICE_NOTE") }}</div>
         </div>
 
+        <div class="about-section">
+          <div class="d-flex flex-wrap justify-content-between align-items-center">
+            <div class="mb-2 mb-sm-0">
+              <h6 class="mb-1">{{ t("ABOUT_DOCUMENTATION_TITLE") }}</h6>
+              <div class="text-muted small">{{ t("ABOUT_DOCUMENTATION_HINT") }}</div>
+            </div>
+            <div class="about-document-actions">
+              <button
+                type="button"
+                class="btn btn-outline-info btn-sm"
+                data-toggle="modal"
+                data-target="#aboutDocumentModal"
+                data-about-document-url="{{ url_for('api_about_document', document_name='readme') }}"
+                data-about-document-title="{{ t('ABOUT_DOCUMENT_README') }}"
+              >
+                {{ t("ABOUT_DOCUMENT_README") }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline-info btn-sm"
+                data-toggle="modal"
+                data-target="#aboutDocumentModal"
+                data-about-document-url="{{ url_for('api_about_document', document_name='changelog') }}"
+                data-about-document-title="{{ t('ABOUT_DOCUMENT_CHANGELOG') }}"
+              >
+                {{ t("ABOUT_DOCUMENT_CHANGELOG") }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         {% if current_user.is_admin %}
           <div
             class="about-section about-update-section"
@@ -215,6 +246,37 @@
             </table>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div
+  class="modal fade about-document-modal"
+  id="aboutDocumentModal"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="aboutDocumentModalTitle"
+  aria-hidden="true"
+  data-loading="{{ t('ABOUT_DOCUMENT_LOADING') }}"
+  data-error="{{ t('ABOUT_DOCUMENT_UNAVAILABLE') }}"
+  data-repo-url="{{ about_info.repo_url }}"
+>
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="aboutDocumentModalTitle">{{ t("ABOUT_DOCUMENT_README") }}</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="{{ t('ABOUT_DOCUMENT_CLOSE') }}">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body about-document-body" id="aboutDocumentModalBody">
+        <div class="about-document-status">{{ t("ABOUT_DOCUMENT_LOADING") }}</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">
+          {{ t("ABOUT_DOCUMENT_CLOSE") }}
+        </button>
       </div>
     </div>
   </div>
@@ -737,6 +799,109 @@
     refreshStatus({ automatic: true });
   });
   refreshStatus();
+})();
+</script>
+<script>
+(function () {
+  var modal = document.getElementById("aboutDocumentModal");
+  var modalTitle = document.getElementById("aboutDocumentModalTitle");
+  var modalBody = document.getElementById("aboutDocumentModalBody");
+  if (!modal || !modalTitle || !modalBody || !window.fetch) return;
+
+  var cache = Object.create(null);
+  var activeRequest = 0;
+  var repositoryUrl = (modal.getAttribute("data-repo-url") || "").replace(/\/+$/, "");
+
+  function showStatus(message, isError) {
+    modalBody.textContent = "";
+    var status = document.createElement("div");
+    status.className = "about-document-status" + (isError ? " is-error" : "");
+    status.textContent = message;
+    modalBody.appendChild(status);
+  }
+
+  function prepareDocument(html) {
+    modalBody.innerHTML = html;
+
+    Array.prototype.forEach.call(modalBody.querySelectorAll("a[href]"), function (link) {
+      var href = (link.getAttribute("href") || "").trim();
+      if (!href || href.charAt(0) === "#") return;
+
+      if (/^https?:\/\//i.test(href)) {
+        link.setAttribute("target", "_blank");
+        link.setAttribute("rel", "noopener noreferrer");
+        return;
+      }
+
+      if (/^mailto:/i.test(href)) return;
+
+      if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.charAt(0) === "/") {
+        link.removeAttribute("href");
+        return;
+      }
+
+      if (repositoryUrl) {
+        link.setAttribute("href", repositoryUrl + "/blob/main/" + href.replace(/^\.\//, ""));
+        link.setAttribute("target", "_blank");
+        link.setAttribute("rel", "noopener noreferrer");
+      }
+    });
+
+    Array.prototype.forEach.call(modalBody.querySelectorAll("img"), function (image) {
+      var src = (image.getAttribute("src") || "").trim();
+      if (!/^https?:\/\//i.test(src)) {
+        image.removeAttribute("src");
+      }
+      image.setAttribute("loading", "lazy");
+      image.setAttribute("decoding", "async");
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    var trigger = event.target && event.target.closest
+      ? event.target.closest("[data-about-document-url]")
+      : null;
+    if (!trigger) return;
+
+    var url = trigger.getAttribute("data-about-document-url") || "";
+    modalTitle.textContent = trigger.getAttribute("data-about-document-title") || "";
+    activeRequest += 1;
+    var requestId = activeRequest;
+
+    if (Object.prototype.hasOwnProperty.call(cache, url)) {
+      prepareDocument(cache[url]);
+      return;
+    }
+
+    showStatus(modal.getAttribute("data-loading") || "", false);
+    fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Accept": "application/json",
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    })
+      .then(function (response) {
+        return response.json().catch(function () {
+          return { ok: false };
+        }).then(function (data) {
+          return { response: response, data: data };
+        });
+      })
+      .then(function (result) {
+        if (requestId !== activeRequest) return;
+        if (!result.response.ok || !result.data || !result.data.ok) {
+          throw new Error((result.data && result.data.error) || modal.getAttribute("data-error") || "");
+        }
+        cache[url] = result.data.html || "";
+        prepareDocument(cache[url]);
+      })
+      .catch(function (error) {
+        if (requestId !== activeRequest) return;
+        showStatus(error.message || modal.getAttribute("data-error") || "", true);
+      });
+  });
 })();
 </script>
 {% endblock %}
