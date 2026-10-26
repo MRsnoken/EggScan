@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.1] - 2026-10-26
+
+### Security
+  - Raise minimum dependency versions to include security fixes: Flask 3.1.3, Apprise 1.11.0, Requests 2.33.0, urllib3 2.8.0, certifi 2026.10.19, idna 3.15, oauthlib 4.0.0 and Werkzeug 3.1.9.
+  - Require pip 26.2 or newer and setuptools 84.1.0 or newer in the application virtual environment.
+
+### Fixed
+  - Enable compatible upgrades of application dependencies and required transitive dependencies in existing installations.
+  - Copy the release's requirements.txt into the installation directory during installation and upgrades.
+  - Ensure the service user can read and execute the virtual environment after installation with a restrictive umask.
+  - Stop installation if requirements.txt is missing or dependency compatibility checks fail.
+
+### Changed
+  - Raise the minimum Python version from 3.9 to 3.10 and validate the interpreter in existing virtual environments.
+
 ## [1.10.0] - 2026-09-20
 
 ### Added

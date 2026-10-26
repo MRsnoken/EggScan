@@ -182,14 +182,14 @@ and Fedora**, plus compatible **RHEL-family systems using DNF**, including
 Rocky Linux, AlmaLinux and CentOS Stream. Other compatible Debian- or DNF-based
 derivatives may also work.
 
-Automatic installation requires **systemd and Python 3.9 or newer**.
+Automatic installation requires **systemd and Python 3.10 or newer**.
 Other Linux distributions require manual installation and manual updates.
 Expand the instructions below for your installation method.
 
 <details>
 <summary><strong> Installation instructions (APT / DNF systems) </strong> ⬇</summary>
 
-The installer automatically selects `apt-get` or `dnf`, installs the appropriate package names and verifies that Python 3.9 or newer is available. The About page web updater supports the same system families when systemd is available. Other Linux distributions require manual installation and manual updates.
+The installer automatically selects `apt-get` or `dnf`, installs the appropriate package names and verifies that Python 3.10 or newer is available. The About page web updater supports the same system families when systemd is available. Other Linux distributions require manual installation and manual updates.
 
 Run:
 
@@ -242,7 +242,9 @@ For a complete installation on supported systems, use the installer above.
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade 'pip>=26.2' 'setuptools>=84.1.0'
+pip install --upgrade --upgrade-strategy eager -r requirements.txt
+python -m pip check
 ```
 </details>
 <details>

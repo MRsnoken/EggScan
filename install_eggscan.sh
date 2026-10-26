@@ -37,6 +37,11 @@ APP_MAIN="$INSTALL_DIR/eggscan.py"
 UPDATER_SOURCE="$SCRIPT_DIR/scripts/eggscan-update"
 UPDATER_SERVICE_SOURCE="$SCRIPT_DIR/systemd/eggscan-update.service"
 
+if [ ! -f "$SCRIPT_DIR/requirements.txt" ]; then
+  echo "ERROR: requirements.txt is missing. Download the complete EggScan source before installing."
+  exit 1
+fi
+
 PACKAGE_MANAGER=""
 OS_ID="unknown"
 OS_ID_LIKE=""
@@ -201,15 +206,15 @@ install_system_packages() {
 }
 
 check_python_version() {
-  python3 - <<'PY'
+  "${1:-python3}" - <<'PY'
 import sys
 
-minimum = (3, 9)
+minimum = (3, 10)
 current = sys.version_info[:3]
 version = ".".join(str(part) for part in current)
 
 if current < minimum:
-    print(f"ERROR: EggScan requires Python 3.9 or newer; found Python {version}.", file=sys.stderr)
+    print(f"ERROR: EggScan requires Python 3.10 or newer; found Python {version}.", file=sys.stderr)
     raise SystemExit(1)
 
 print(f"Python version OK: {version}")
@@ -274,6 +279,7 @@ set_app_permissions() {
 
   if [ -d "$VENV_DIR" ]; then
     chown -R root:root "$VENV_DIR"
+    chmod -R a+rX "$VENV_DIR"
   fi
 
   if [ -f "$SECRET_PATH" ]; then
@@ -399,29 +405,20 @@ if [ ! -x "$PYTHON_BIN" ]; then
   exit 1
 fi
 
-echo
-echo "Upgrading pip inside the virtualenv..."
-"$PYTHON_BIN" -m pip install --upgrade pip
-
-# ------------------------------------------------------------------------------
-# 4. Install Python dependencies (prefer requirements.txt)
-# ------------------------------------------------------------------------------
+check_python_version "$PYTHON_BIN"
 
 echo
-if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
-  echo "Installing Python packages from requirements.txt inside venv..."
-  "$PIP_BIN" install -r "$SCRIPT_DIR/requirements.txt"
-else
-  echo "requirements.txt not found, installing known deps explicitly..."
-  "$PIP_BIN" install \
-    Flask \
-    flask_sqlalchemy \
-    Flask-Login \
-    Flask-Bcrypt \
-    python-nmap \
-    gunicorn \
-    apprise
-fi
+echo "Upgrading Python installation tools inside the virtualenv..."
+"$PYTHON_BIN" -m pip install --upgrade 'pip>=26.2' 'setuptools>=84.1.0'
+
+# ------------------------------------------------------------------------------
+# 4. Install Python dependencies
+# ------------------------------------------------------------------------------
+
+echo
+echo "Installing Python packages from requirements.txt inside venv..."
+"$PIP_BIN" install --upgrade --upgrade-strategy eager -r "$SCRIPT_DIR/requirements.txt"
+"$PYTHON_BIN" -m pip check
 
 echo
 echo "Verifying that Python dependencies can be imported from the venv..."
@@ -495,6 +492,8 @@ elif [ -f "$SCRIPT_DIR/install.sh" ]; then
   cp -a "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install_eggscan.sh"
   chmod 755 "$INSTALL_DIR/install_eggscan.sh"
 fi
+
+cp -a "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
 
 if [ -f "$SCRIPT_DIR/version.json" ]; then
   cp -a "$SCRIPT_DIR/version.json" "$INSTALL_DIR/version.json"
