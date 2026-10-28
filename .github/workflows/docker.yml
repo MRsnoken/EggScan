@@ -1,0 +1,258 @@
+name: Docker
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a security rebuild of the latest stable release
+        type: boolean
+        default: false
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate app version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          version = json.load(open('version.json'))['version']
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', version):
+              raise SystemExit('Invalid version.json version')
+          if os.environ['GITHUB_EVENT_NAME'] == 'release' and os.environ['RELEASE_TAG'] != f'v{version}':
+              raise SystemExit('Release tag does not match version.json')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\n')
+          PY
+      - name: Set up Docker image store
+        uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5
+        with:
+          daemon-config: |
+            {"features": {"containerd-snapshotter": true}}
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - name: Build validation image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: eggscan:ci-${{ matrix.architecture }}
+          pull: true
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Validate container startup
+        env:
+          EGGSCAN_IMAGE: eggscan:ci-${{ matrix.architecture }}
+          EGGSCAN_WEB_PORT: '15000'
+          COMPOSE_PROJECT_NAME: eggscan-ci
+        run: |
+          docker compose -f docker/compose.yaml up -d --wait --wait-timeout 90
+          curl --fail --silent --show-error http://127.0.0.1:15000/login > /dev/null
+          docker compose -f docker/compose.yaml exec -T web python - <<'PY'
+          import json
+          import os
+          import eggscan
+          assert os.geteuid() == 10001
+          assert eggscan.CONTAINER_MODE
+          assert eggscan.DATA_DIR == '/data'
+          assert eggscan.APP_VERSION == json.load(open('version.json'))['version']
+          assert not eggscan.get_updater_platform_info()['supported']
+          try:
+              eggscan.start_updater_service()
+          except RuntimeError:
+              pass
+          else:
+              raise SystemExit('System updater must be disabled in Docker')
+          PY
+      - name: Export validated image
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          docker image inspect --format '{{.Id}}' "eggscan:ci-$ARCHITECTURE" > "$RUNNER_TEMP/eggscan-$ARCHITECTURE.id"
+          docker image save "eggscan:ci-$ARCHITECTURE" | gzip -1 > "$RUNNER_TEMP/eggscan-$ARCHITECTURE.tar.gz"
+          cd "$RUNNER_TEMP"
+          sha256sum "eggscan-$ARCHITECTURE.tar.gz" "eggscan-$ARCHITECTURE.id" > "eggscan-$ARCHITECTURE.sha256"
+      - name: Upload validated image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: eggscan-image-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/eggscan-${{ matrix.architecture }}.tar.gz
+            ${{ runner.temp }}/eggscan-${{ matrix.architecture }}.id
+            ${{ runner.temp }}/eggscan-${{ matrix.architecture }}.sha256
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+          overwrite: true
+      - name: Show logs and remove validation containers
+        if: always()
+        env:
+          EGGSCAN_IMAGE: eggscan:ci-${{ matrix.architecture }}
+          EGGSCAN_WEB_PORT: '15000'
+          COMPOSE_PROJECT_NAME: eggscan-ci
+        run: |
+          docker compose -f docker/compose.yaml logs
+          docker compose -f docker/compose.yaml down --volumes
+
+  publish:
+    name: Publish release image
+    needs: validate
+    if: (github.event_name == 'release' && !github.event.release.draft) || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prepare image tags
+        id: image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import urllib.error
+          import urllib.request
+
+          version = json.loads(Path('version.json').read_text())['version']
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', version):
+              raise SystemExit('Invalid version.json version')
+          repository = os.environ['GITHUB_REPOSITORY']
+          api_url = os.environ['GITHUB_API_URL'].rstrip('/')
+          request = urllib.request.Request(
+              f'{api_url}/repos/{repository}/releases/latest',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  latest = json.load(response)
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              latest = {}
+          latest_matches = (
+              latest.get('tag_name') == f'v{version}'
+              and not latest.get('draft', True)
+              and not latest.get('prerelease', True)
+          )
+          if os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
+              if not latest_matches:
+                  raise SystemExit('Security rebuilds must match the latest stable release')
+              subprocess.run([
+                  'git', 'fetch', '--no-tags', '--depth=1', 'origin', f'refs/tags/v{version}',
+              ], check=True)
+              comparison = subprocess.run([
+                  'git', 'diff', '--quiet', 'FETCH_HEAD', 'HEAD', '--',
+                  'eggscan.py', 'templates', 'static', 'version.json',
+              ])
+              if comparison.returncode != 0:
+                  raise SystemExit('Application changes require a new EggScan release')
+          image = f'ghcr.io/{repository.lower()}'
+          build = f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          tags = [f'{image}:{version}', f'{image}:{version}-build.{build}']
+          if latest_matches and os.environ.get('PRERELEASE') != 'true' and '-' not in version:
+              tags.append(f'{image}:latest')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'image={image}\n')
+              output.write(f'version={version}\n')
+              output.write('tags<<EOF\n' + '\n'.join(tags) + '\nEOF\n')
+          PY
+      - name: Set up Docker image store
+        uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5
+        with:
+          daemon-config: |
+            {"features": {"containerd-snapshotter": true}}
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download validated images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: eggscan-image-*
+          path: ${{ runner.temp }}/eggscan-images
+          merge-multiple: true
+      - name: Publish validated images
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.image }}
+          IMAGE_TAGS: ${{ steps.image.outputs.tags }}
+          IMAGE_ARCHIVES: ${{ runner.temp }}/eggscan-images
+        run: |
+          cd "$IMAGE_ARCHIVES"
+          sources=()
+          for architecture in amd64 arm64; do
+            sha256sum -c "eggscan-$architecture.sha256"
+            docker load --input "eggscan-$architecture.tar.gz"
+            expected="$(cat "eggscan-$architecture.id")"
+            actual="$(docker image inspect --format '{{.Id}}' "eggscan:ci-$architecture")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo 'Validated image identity mismatch' >&2
+              exit 1
+            fi
+            reference="$IMAGE_NAME:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$architecture"
+            docker tag "eggscan:ci-$architecture" "$reference"
+            docker push "$reference"
+            digest="$(docker image inspect --format '{{.Descriptor.Digest}}' "$reference")"
+            if [[ "$digest" != "$expected" ]]; then
+              echo 'Validated image manifest mismatch' >&2
+              exit 1
+            fi
+            sources+=("$IMAGE_NAME@$digest")
+          done
+          tags=()
+          while IFS= read -r tag; do
+            if [[ -n "$tag" ]]; then
+              tags+=(--tag "$tag")
+            fi
+          done <<< "$IMAGE_TAGS"
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"

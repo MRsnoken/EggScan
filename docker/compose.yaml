@@ -1,0 +1,59 @@
+name: eggscan
+
+services:
+  web:
+    image: "${EGGSCAN_IMAGE:-ghcr.io/mrsnoken/eggscan:latest}"
+    command: ["web"]
+    init: true
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      EGGSCAN_WEB_HOST: "${EGGSCAN_WEB_HOST:-0.0.0.0}"
+      EGGSCAN_WEB_PORT: "${EGGSCAN_WEB_PORT:-5000}"
+    volumes:
+      - eggscan-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,nosuid,noexec,size=64m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+    healthcheck:
+      test: ["CMD", "python", "docker/healthcheck.py"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scan:
+    image: "${EGGSCAN_IMAGE:-ghcr.io/mrsnoken/eggscan:latest}"
+    command: ["scan-worker"]
+    init: true
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - eggscan-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,nosuid,noexec,size=64m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  eggscan-data:

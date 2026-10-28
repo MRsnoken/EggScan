@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0] - 2026-10-28
+
+### Added
+  - Optional Docker Compose installation for Linux AMD64 and ARM64, with persistent application data and release images built by GitHub Actions.
+  - Automated image validation for both architectures and manually triggered security rebuilds for the latest stable Docker release.
+
+### Security
+  - Apply available Debian package updates during clean Docker image builds without mixing distribution releases.
+
+### Changed
+  - Show Docker update instructions on the About page for container installations instead of the system installer controls.
+
 ## [1.10.1] - 2026-10-26
 
 ### Security

@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: daily
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

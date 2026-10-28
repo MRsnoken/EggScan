@@ -24,7 +24,7 @@
         <div class="about-summary mb-3">
           <div class="about-version-label">{{ t("ABOUT_CURRENT_VERSION") }}</div>
           <div class="about-version-value">{{ about_info.version }}</div>
-          <div class="text-muted">{{ t("ABOUT_SERVICE_NOTE") }}</div>
+          <div class="text-muted">{{ t("ABOUT_CONTAINER_SERVICE_NOTE") if about_info.container else t("ABOUT_SERVICE_NOTE") }}</div>
         </div>
 
         <div class="about-section">
@@ -104,6 +104,12 @@
             </div>
           </div>
 
+          {% if about_info.container %}
+            <div class="about-section">
+              <h6>{{ t("ABOUT_CONTAINER_UPDATE_TITLE") }}</h6>
+              <div class="text-muted small">{{ t("ABOUT_CONTAINER_UPDATE_HINT") }}</div>
+            </div>
+          {% else %}
           <div
             class="about-section about-updater-status-section"
             id="aboutUpdaterStatusPanel"
@@ -174,9 +180,10 @@
             <pre class="about-updater-log mb-0" id="aboutUpdaterLog">{{ t("ABOUT_UPDATER_LOG_EMPTY") }}</pre>
             <div class="text-muted small mt-2">{{ t("ABOUT_UPDATER_HISTORY_HINT") }} <code>/var/log/eggscan-update.log</code>.</div>
           </div>
+          {% endif %}
         {% endif %}
 
-        {% if current_user.is_admin %}
+        {% if current_user.is_admin and not about_info.container %}
           <div class="about-updater-modal" id="aboutUpdaterModal" aria-hidden="true">
             <div class="about-updater-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="aboutUpdaterModalTitle">
               <div class="about-updater-modal-header">

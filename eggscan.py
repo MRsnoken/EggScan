@@ -51,9 +51,13 @@ def utc_now() -> datetime.datetime:
 # ---------------------------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONTAINER_MODE = os.environ.get("EGGSCAN_CONTAINER", "").strip().lower() in ("1", "true", "yes")
+DATA_DIR = os.path.abspath(os.environ.get("EGGSCAN_DATA_DIR") or BASE_DIR)
+if DATA_DIR != BASE_DIR:
+    os.makedirs(DATA_DIR, mode=0o700, exist_ok=True)
 VERSION_FILE = os.path.join(BASE_DIR, "version.json")
-SECRET_FILE = os.path.join(BASE_DIR, "secret_key.txt")
-DB_FILE = os.path.join(BASE_DIR, "eggscan.db")
+SECRET_FILE = os.path.join(DATA_DIR, "secret_key.txt")
+DB_FILE = os.path.join(DATA_DIR, "eggscan.db")
 GITHUB_REPO_URL = "https://github.com/MRsnoken/EggScan"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/MRsnoken/EggScan/releases/latest"
 ABOUT_DOCUMENT_FILES = {
@@ -92,7 +96,11 @@ def load_or_create_secret_key():
                 key = f.read().strip()
                 if key:
                     return key
+                if CONTAINER_MODE:
+                    raise RuntimeError("The session key file is empty.")
         except Exception:
+            if CONTAINER_MODE:
+                raise
             pass
 
     key = secrets.token_hex(32)
@@ -102,8 +110,12 @@ def load_or_create_secret_key():
         try:
             os.chmod(SECRET_FILE, 0o600)
         except Exception:
+            if CONTAINER_MODE:
+                raise
             pass
     except Exception:
+        if CONTAINER_MODE:
+            raise
         pass
     return key
 
@@ -370,6 +382,9 @@ TRANSLATIONS = {
         "ABOUT_DOCUMENT_LOADING": "Läser dokument...",
         "ABOUT_DOCUMENT_UNAVAILABLE": "Dokumentet kunde inte läsas från installationen.",
         "ABOUT_SERVICE_NOTE": "Uppdatering körs via installeraren och systemd; admin kan starta den härifrån.",
+        "ABOUT_CONTAINER_SERVICE_NOTE": "Installerad med Docker.",
+        "ABOUT_CONTAINER_UPDATE_TITLE": "Uppdatera med Docker",
+        "ABOUT_CONTAINER_UPDATE_HINT": "Uppdatera med Docker Compose. Dina data finns kvar i datavolymen.",
         "ABOUT_UPDATE_TITLE": "Uppdateringar",
         "ABOUT_UPDATE_HINT": "Kontrollerar senaste publicerade GitHub-release.",
         "ABOUT_CHECK_UPDATES": "Kolla uppdateringar",
@@ -856,6 +871,9 @@ TRANSLATIONS = {
         "ABOUT_DOCUMENT_LOADING": "Loading document...",
         "ABOUT_DOCUMENT_UNAVAILABLE": "The document could not be read from the installation.",
         "ABOUT_SERVICE_NOTE": "Updates run through the installer and systemd; admins can start them from here.",
+        "ABOUT_CONTAINER_SERVICE_NOTE": "Installed with Docker.",
+        "ABOUT_CONTAINER_UPDATE_TITLE": "Update with Docker",
+        "ABOUT_CONTAINER_UPDATE_HINT": "Update with Docker Compose. Your data stays in the data volume.",
         "ABOUT_UPDATE_TITLE": "Updates",
         "ABOUT_UPDATE_HINT": "Checks the latest published GitHub release.",
         "ABOUT_CHECK_UPDATES": "Check updates",
@@ -2223,7 +2241,7 @@ def get_updater_platform_info() -> dict:
         package_manager = "apt"
     elif dnf_based and dnf_available:
         package_manager = "dnf"
-    supported = bool(package_manager) and systemctl_available
+    supported = bool(package_manager) and systemctl_available and not CONTAINER_MODE
     label = (
         str(os_release.get("PRETTY_NAME", "")).strip()
         or str(os_release.get("NAME", "")).strip()
@@ -2247,6 +2265,7 @@ def get_about_info() -> dict:
 
     return {
         "version": APP_VERSION,
+        "container": CONTAINER_MODE,
         "repo_url": GITHUB_REPO_URL,
         "install_dir": BASE_DIR,
         "db_file": DB_FILE,
@@ -2439,6 +2458,8 @@ def clean_legacy_updater_reload_hint(value: str, fallback: str = "Update complet
 
 
 def get_updater_status_payload() -> dict:
+    if CONTAINER_MODE:
+        return {"ok": True, "status": None, "log_lines": []}
     status = read_json_file_if_exists(UPDATE_STATUS_FILE)
     if status:
         updated_at_utc = str(status.get("updated_at_utc", "")).strip()
@@ -2465,6 +2486,8 @@ def first_executable_path(candidates: tuple[str, ...]) -> str:
 
 
 def start_updater_service() -> dict:
+    if CONTAINER_MODE:
+        raise RuntimeError("Docker installations must be updated by replacing the container image.")
     if not get_updater_platform_info().get("supported"):
         raise RuntimeError("Web updater is not supported on this system.")
 
@@ -4053,7 +4076,7 @@ def api_updater_start():
     if not get_updater_platform_info().get("supported"):
         return jsonify({
             "ok": False,
-            "error": t("ABOUT_UPDATER_UNSUPPORTED_START"),
+            "error": t("ABOUT_CONTAINER_UPDATE_HINT") if CONTAINER_MODE else t("ABOUT_UPDATER_UNSUPPORTED_START"),
         }), 400
 
     try:

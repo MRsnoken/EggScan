@@ -153,7 +153,7 @@ See the [Security Notice](#-security-notice) before setting up remote access.
 - Admin CSV export for the currently filtered device view
 - Database backup download from the Settings page (admin only)
 - Separated scan worker and web UI for improved stability
-- Production-ready web serving via Gunicorn (systemd)
+- Production-ready web serving via Gunicorn (systemd or Docker)
 
 </details>
 
@@ -176,6 +176,8 @@ It focuses on clarity and control for private LAN environments.
 ---
 
 ## Installation
+
+For Docker, see the [Docker installation instructions](docker/README.md).
 
 The automatic installer supports **Debian, Ubuntu, Linux Mint, Raspberry Pi OS
 and Fedora**, plus compatible **RHEL-family systems using DNF**, including
