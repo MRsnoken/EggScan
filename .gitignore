@@ -35,4 +35,5 @@ dist/
 
 # Local env/log files
 .env
+*.env
 *.log
