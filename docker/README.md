@@ -23,7 +23,7 @@ From the repository root:
 docker compose -f docker/compose.yaml up -d
 ```
 
-Open http://localhost:5000 on the host, or http://<server-ip>:5000 from another
+Open `http://localhost:5000` on the host, or `http://<server-ip>:5000` from another
 device. Create an admin account and select your networks in Settings.
 
 The web interface listens on all IPv4 interfaces by default. Use a trusted
