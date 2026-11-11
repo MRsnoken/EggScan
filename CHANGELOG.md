@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.1] - 2026-11-11
+
+### Changed
+  - Refresh the pinned official `python:3.11-slim-trixie` Docker base image.
+  - Update `docker/setup-docker-action` from 5.6.0 to 5.7.0.
+  - Update `docker/login-action` from 4.7.0 to 4.8.0.
+
+### Notes
+  - Maintenance release for Docker packaging and build/publishing workflows. No application feature changes.
+  - Native installations have no functional changes in this release.
+
 ## [1.11.0] - 2026-10-28
 
 ### Added
